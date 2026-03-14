@@ -14,10 +14,15 @@ You are helping a user port a DX9 shader-based game to the fixed-function pipeli
 The template is a d3d9.dll proxy that intercepts `IDirect3DDevice9` and:
 
 1. Captures vertex shader constants (View, Projection, World matrices) from `SetVertexShaderConstantF`
-2. NULLs both vertex and pixel shaders on `DrawIndexedPrimitive` calls
-3. Applies captured matrices via `SetTransform` (FFP)
-4. Sets up texture stages and lighting for FFP rendering
-5. Chain-loads RTX Remix (`d3d9_remix.dll`)
+2. Parses `SetVertexDeclaration` to detect per-element attributes: BLENDWEIGHT+BLENDINDICES (skinned), POSITIONT (screen-space), NORMAL presence, and per-element byte offsets and types
+3. Routes `DrawIndexedPrimitive` by vertex layout:
+   - No NORMAL → HUD/UI pass-through (uses different VS constant layout than world geometry)
+   - Skinned with `ENABLE_SKINNING=1` → expands vertices to a fixed FLOAT layout, then draws with FFP indexed vertex blending
+   - Rigid 3D (has NORMAL) → NULLs shaders, applies FFP transforms, draws
+4. Routes `DrawPrimitive` by declaration state: world-space draws (have decl, no POSITIONT, not skinned) engage FFP; screen-space and no-decl draws pass through
+5. Applies captured matrices via `SetTransform` (FFP)
+6. Sets up texture stages and lighting for FFP rendering (stages 1-7 disabled to prevent stale auxiliary textures reaching Remix)
+7. Chain-loads RTX Remix (`d3d9_remix.dll`)
 
 ## Template Source Files
 
@@ -45,7 +50,7 @@ The top of `d3d9_device.c` has a `GAME-SPECIFIC` section with `#define`s that mu
 #define VS_REG_WORLD_END       20
 #define VS_REG_BONE_THRESHOLD  20   // Registers at/beyond this are bone candidates
 #define VS_REGS_PER_BONE        3   // Registers per bone (3 = packed 4x3)
-#define VS_BONE_MIN_REGS        9   // Minimum register count for bone detection
+#define VS_BONE_MIN_REGS        3   // Minimum register count for bone detection
 ```
 
 Beyond the defines, users may need to modify:
@@ -129,15 +134,17 @@ Use this to iterate: wrong matrices → re-check register mapping. Missing textu
 - **FFP_Setup**: Called once per FFP engagement. Configures texture stages (stage 0 = MODULATE texture×diffuse), disables lighting, sets white material, disables fog. Modify this if the game needs different FFP state.
 - **FFP_ApplyTransforms**: Reads from the `vsConst[]` array using the `VS_REG_*` defines and calls `SetTransform` with transposed matrices (D3D9 FFP expects row-major).
 - **Relay thunks**: The 104 non-intercepted methods use `__declspec(naked)` ASM to swap `this` and jump directly to the real vtable. Zero overhead. Don't touch these unless you need to intercept a new method.
-- **Skinning**: Behind `#if ENABLE_SKINNING`. Bone palette detection triggers when a large `SetVertexShaderConstantF` write lands at registers ≥ `VS_REG_BONE_THRESHOLD` with a count divisible by `VS_REGS_PER_BONE`. Default behavior passes skinned meshes through with original shaders.
+- **Skinning (ENABLE_SKINNING=1)**: When a vertex declaration has BLENDWEIGHT + BLENDINDICES, the proxy detects it as skinned and captures per-element byte offsets and types into `WrappedDevice`. On `DrawIndexedPrimitive`, `SkinVB_GetExpanded` expands the source vertices to a fixed 48-byte layout (FLOAT3 pos + FLOAT3 weights + UBYTE4 indices + FLOAT3 normal + FLOAT2 uv), decoding compressed formats (SHORT4N normals, FLOAT16_2 UVs). The expanded buffer is hash-keyed and cached (up to 64 slots). `FFP_UploadBones` then uploads bone matrices via `SetTransform(WORLDMATRIX(i))` and sets `D3DRS_VERTEXBLEND`. A shared `skinExpDecl` (IDirect3DVertexDeclaration9) is created at device-creation time. When `ENABLE_SKINNING=0`, skinned meshes pass through with original shaders.
 
 ## Common Pitfalls
 
 - **Matrices look wrong**: D3D9 FFP `SetTransform` expects row-major matrices. The proxy transposes them. If the game stores matrices column-major in VS constants (the common case), the transpose is correct. If the game is already row-major, remove the transpose in `FFP_ApplyTransforms`.
 - **Everything is white/black**: The game's albedo texture might be on stage 1+ instead of stage 0. Set `AlbedoStage` in proxy.ini, or trace `SetTexture` calls to find the pattern.
-- **Some objects render, others don't**: DrawPrimitive (non-indexed) calls pass through with shaders by default. Some games use DP for 3D geometry, not just UI. Check the diagnostic log.
+- **Some objects render, others don't**: DrawPrimitive routes by vertex declaration — world-space draws (have decl, no POSITIONT, not skinned) engage FFP; screen-space/no-decl pass through. DrawIndexedPrimitive additionally filters out draws without NORMAL as likely HUD/UI. If world geometry is missing, check whether its vertex decl has NORMAL and whether `viewProjValid` is true when those draws happen.
+- **Skinned meshes are invisible**: Enable skinning with `#define ENABLE_SKINNING 1`. Check the log for `skinExpDecl: 00000000` — if NULL, `CreateVertexDeclaration` failed (device may not have been ready). Also verify `boneStartReg` and `numBones` are non-zero in DIP log entries.
 - **Game crashes on startup**: The chain-loaded Remix DLL might not be present. Set `Enabled=0` in proxy.ini `[Remix]` section to test without Remix first.
 - **Geometry at origin / piled up**: World matrix register mapping is wrong. Every object gets identity world transform. Re-examine VS constant writes.
+- **Characters' world geometry shifts after a skinned draw**: After uploading bone matrices, WORLDMATRIX(0) is clobbered by bone[0]. The proxy sets `worldDirty=1` so `FFP_ApplyTransforms` re-applies the world matrix on the next rigid draw. If this still causes issues, the bone start register may overlap with the world matrix register range.
 
 ## Using the RE Tools
 
