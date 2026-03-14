@@ -78,7 +78,7 @@ Note: These rules are not exhaustive. Extrapolate from the principles and exampl
 
 ## Tool Catalog
 
-All tools work on PE binaries (`.exe` and `.dll`). `$B` = path to binary, `$VA` = hex address, `$D` = path to minidump `.dmp` file. Check each tool's help command for more info on usage.
+All tools work on PE binaries (`.exe` and `.dll`). `$B` = path to binary, `$VA` = hex address, `$D` = path to minidump `.dmp` file. Check each tool's help command for more info on usage. Whenever using these tools, be sure to activate the venv and run from the repo root to ensure all dependencies and the knowledge base are available.
 
 **Always consult this catalog before making any move.** Collecting MORE INFORMATION per command run is encouraged over minor snippets of data/output that don't reveal the whole picture.
 

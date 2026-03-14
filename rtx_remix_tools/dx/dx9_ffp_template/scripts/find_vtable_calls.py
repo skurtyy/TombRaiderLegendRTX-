@@ -10,9 +10,12 @@ Also scans for direct D3D9 device vtable calls used by the engine.
 Usage:
     python find_vtable_calls.py <game.exe>
 """
+import argparse
 import sys
 import struct
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "retools"))
 
 # ID3DXConstantTable vtable (32-bit, offset = slot * 4)
 D3DX_CONST_TABLE = {
@@ -124,11 +127,11 @@ def scan_calls(text_data, text_va, vtable_off):
 
 
 def main():
-    if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} <game.exe>")
-        sys.exit(1)
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("binary", help="Path to PE binary (.exe / .dll)")
+    args = p.parse_args()
 
-    data = Path(sys.argv[1]).read_bytes()
+    data = Path(args.binary).read_bytes()
     image_base, sections = parse_pe(data)
     raw_start, raw_size, text_va = find_text(data, image_base, sections)
     if raw_start is None:
@@ -148,6 +151,8 @@ def main():
                 print(f"    0x{va:08X}: {desc}")
             if len(results) > 50:
                 print(f"    ... and {len(results) - 50} more")
+        else:
+            print(f"\n  {method_name} (vtable+0x{vtable_off:02X}): 0 sites")
 
     # --- Direct D3D9 device vtable calls ---
     print("\n\n=== Direct D3D9 device vtable calls ===")

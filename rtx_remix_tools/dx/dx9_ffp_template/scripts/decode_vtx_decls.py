@@ -12,9 +12,12 @@ Examples:
     python decode_vtx_decls.py game.exe 0x16EBF50 0x16EBF70
     python decode_vtx_decls.py game.exe --scan
 """
+import argparse
 import sys
 import struct
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "retools"))
 
 D3DDECLTYPE = {
     0: "FLOAT1", 1: "FLOAT2", 2: "FLOAT3", 3: "FLOAT4",
@@ -198,23 +201,20 @@ def scan_for_decls(data, sections, image_base):
 
 
 def main():
-    if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} <game.exe> [addr1 addr2 ...] [--scan]")
-        sys.exit(1)
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("binary", help="Path to PE binary (.exe / .dll)")
+    p.add_argument("addresses", nargs="*", type=lambda x: int(x, 0), metavar="ADDR",
+                   help="VA(s) of D3DVERTEXELEMENT9 array(s) (hex, e.g. 0x16EBF50)")
+    p.add_argument("--scan", action="store_true",
+                   help="Auto-scan for CreateVertexDeclaration call sites")
+    args = p.parse_args()
 
-    exe_path = sys.argv[1]
-    data = Path(exe_path).read_bytes()
+    data = Path(args.binary).read_bytes()
     image_base, sections = parse_pe(data)
     print(f"ImageBase: 0x{image_base:08X}")
 
-    addresses = []
-    do_scan = False
-
-    for arg in sys.argv[2:]:
-        if arg == '--scan':
-            do_scan = True
-        elif arg.startswith('0x') or arg.startswith('0X'):
-            addresses.append(int(arg, 16))
+    addresses = list(args.addresses)
+    do_scan = args.scan
 
     if do_scan:
         print("\nAuto-scanning for vertex declarations...")

@@ -10,9 +10,12 @@ CreateVertexDeclaration call sites.
 Usage:
     python find_vs_constants.py <game.exe>
 """
+import argparse
 import sys
 import struct
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "retools"))
 
 def parse_pe(data):
     pe_sig_off = struct.unpack_from("<I", data, 0x3C)[0]
@@ -118,11 +121,11 @@ def analyze_pushes(data, sections, image_base, raw_start, text_va, call_va):
     return pushes
 
 def main():
-    if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} <game.exe>")
-        sys.exit(1)
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("binary", help="Path to PE binary (.exe / .dll)")
+    args = p.parse_args()
 
-    data = Path(sys.argv[1]).read_bytes()
+    data = Path(args.binary).read_bytes()
     image_base, sections = parse_pe(data)
     raw_start, raw_size, text_va = find_text(data, image_base, sections)
     if raw_start is None:
@@ -142,12 +145,16 @@ def main():
         print(f"\n  Indirect dispatch (mov reg, [reg+0x178]): {len(mov_results)} sites")
         for va, desc in mov_results:
             print(f"    0x{va:08X}: {desc}")
+    else:
+        print("  Indirect dispatch: 0 sites")
 
     # --- Argument analysis ---
     all_sites = [(va, reg) for va, reg in results]
     all_sites += [(va, 'indirect') for va, _ in mov_results]
     if all_sites:
         print(f"\n=== SetVertexShaderConstantF argument analysis ===")
+        if len(all_sites) > 50:
+            print(f"  (showing first 50 of {len(all_sites)} sites)")
         for va, reg in all_sites[:50]:
             pushes = analyze_pushes(data, sections, image_base, raw_start, text_va, va)
             if pushes:
@@ -166,6 +173,8 @@ def main():
         print(f"  Indirect: {len(dip_mov)} sites")
         for va, desc in dip_mov:
             print(f"    0x{va:08X}: {desc}")
+    else:
+        print("  Indirect: 0 sites")
 
     # --- SetVertexDeclaration (0x15C) ---
     print(f"\n=== SetVertexDeclaration call sites (call [reg+0x15C]) ===")
@@ -178,6 +187,8 @@ def main():
         print(f"  Indirect: {len(svd_mov)} sites")
         for va, desc in svd_mov:
             print(f"    0x{va:08X}: {desc}")
+    else:
+        print("  Indirect: 0 sites")
 
     # --- CreateVertexDeclaration (0x158) ---
     print(f"\n=== CreateVertexDeclaration call sites (call [reg+0x158]) ===")
@@ -190,6 +201,8 @@ def main():
         print(f"  Indirect: {len(cvd_mov)} sites")
         for va, desc in cvd_mov:
             print(f"    0x{va:08X}: {desc}")
+    else:
+        print("  Indirect: 0 sites")
 
     print("\n--- DONE ---")
 

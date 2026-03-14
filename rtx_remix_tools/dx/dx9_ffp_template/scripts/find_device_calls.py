@@ -11,9 +11,12 @@ Usage:
 If --device-addr is provided, also searches for mov reg, [device_addr] patterns
 to find all code that reads the device pointer global.
 """
+import argparse
 import sys
 import struct
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "retools"))
 
 # IDirect3DDevice9 vtable: slot index -> method name
 D3D9_DEVICE_VTABLE = {
@@ -117,17 +120,14 @@ def find_text_section(data, image_base, sections):
 
 
 def main():
-    if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} <game.exe> [--device-addr 0xADDRESS]")
-        sys.exit(1)
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("binary", help="Path to PE binary (.exe / .dll)")
+    p.add_argument("--device-addr", type=lambda x: int(x, 0), metavar="ADDR",
+                   help="VA of the device pointer global (hex, e.g. 0x7C5548)")
+    args = p.parse_args()
 
-    exe_path = sys.argv[1]
-    device_addr = None
-    for i, arg in enumerate(sys.argv[2:], 2):
-        if arg == '--device-addr' and i + 1 < len(sys.argv):
-            device_addr = int(sys.argv[i + 1], 16)
-
-    data = Path(exe_path).read_bytes()
+    device_addr = args.device_addr
+    data = Path(args.binary).read_bytes()
     image_base, sections = parse_pe_sections(data)
     raw_start, raw_size, text_va = find_text_section(data, image_base, sections)
 
@@ -188,6 +188,8 @@ def main():
             print(f"\n  {method_name} (vtable+0x{vtable_off:03X}): {len(results)} sites")
             for va, reg in results:
                 print(f"    0x{va:08X}: call [{reg}+0x{vtable_off:03X}]")
+        else:
+            print(f"\n  {method_name} (vtable+0x{vtable_off:03X}): 0 sites")
 
     # --- mov reg, [reg+offset] indirect dispatch ---
     print("\n\n=== Indirect vtable dispatch: mov reg, [reg+offset] ===")
@@ -216,6 +218,8 @@ def main():
                 print(f"    0x{va:08X}: {desc}")
             if len(results) > 30:
                 print(f"    ... and {len(results) - 30} more")
+        else:
+            print(f"\n  {method_name} (vtable+0x{vtable_off:03X}): 0 sites")
 
     print("\n--- DONE ---")
 

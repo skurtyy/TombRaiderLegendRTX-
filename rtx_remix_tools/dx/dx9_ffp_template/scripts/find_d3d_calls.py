@@ -9,15 +9,17 @@ Discovers:
 Usage:
     python find_d3d_calls.py <game.exe>
 """
+import argparse
 import sys
 import struct
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "retools"))
 
 def main():
-    if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} <game.exe>")
-        sys.exit(1)
-
-    exe_path = sys.argv[1]
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("binary", help="Path to PE binary (.exe / .dll)")
+    args = p.parse_args()
 
     try:
         import pefile
@@ -25,7 +27,7 @@ def main():
         print("ERROR: pefile not installed. Run: pip install pefile")
         sys.exit(1)
 
-    pe = pefile.PE(exe_path)
+    pe = pefile.PE(args.binary)
     image_base = pe.OPTIONAL_HEADER.ImageBase
     print(f"ImageBase: 0x{image_base:08X}")
     print(f"Machine: 0x{pe.FILE_HEADER.Machine:04X}")
@@ -33,6 +35,10 @@ def main():
     # --- IAT entries ---
     print("\n=== D3D-related IAT entries ===")
     d3d9_iat_va = None
+    if not hasattr(pe, 'DIRECTORY_ENTRY_IMPORT'):
+        print("  (no import directory found — binary may be packed or obfuscated)")
+        print("\n--- DONE ---")
+        return
     for entry in pe.DIRECTORY_ENTRY_IMPORT:
         dll = entry.dll.decode()
         if "d3d" in dll.lower():
@@ -57,11 +63,14 @@ def main():
         print("  (none)")
 
     # --- Direct3DCreate9 call sites ---
-    if d3d9_iat_va:
+    print(f"\n=== Direct3DCreate9 call sites ===")
+    if d3d9_iat_va is None:
+        print("  (Direct3DCreate9 not found in IAT — may be loaded via GetProcAddress)")
+    else:
         iat_bytes = d3d9_iat_va.to_bytes(4, 'little')
         call_pattern = b'\xFF\x15' + iat_bytes
-        print(f"\n=== Direct3DCreate9 call sites (call [0x{d3d9_iat_va:08X}]) ===")
-
+        print(f"  IAT entry at 0x{d3d9_iat_va:08X}")
+        call_count = 0
         for section in pe.sections:
             if section.Characteristics & 0x20000000:
                 data = section.get_data()
@@ -73,10 +82,14 @@ def main():
                         break
                     call_va = section_va + idx
                     print(f"  0x{call_va:08X}: call [Direct3DCreate9]")
+                    call_count += 1
                     pos = idx + 1
+        if call_count == 0:
+            print("  (0 call sites found — may use indirect/dynamic dispatch)")
 
     # --- D3DX shader function call sites ---
     print("\n=== D3DX shader/vertex function call sites ===")
+    d3dx_call_count = 0
     for entry in pe.DIRECTORY_ENTRY_IMPORT:
         dll = entry.dll.decode()
         if "d3dx" in dll.lower():
@@ -98,7 +111,10 @@ def main():
                                     break
                                 call_va = section_va + idx
                                 print(f"  0x{call_va:08X}: call [{name}]")
+                                d3dx_call_count += 1
                                 pos = idx + 1
+    if d3dx_call_count == 0:
+        print("  (no D3DX shader/vertex call sites found — D3DX may not be used)")
 
     # --- D3D9-related strings (dynamic loading) ---
     print("\n=== D3D-related strings ===")

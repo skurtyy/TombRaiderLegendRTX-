@@ -13,9 +13,12 @@ Usage:
 Example:
     python scan_d3d_region.py game.exe 0xF96000 0xFAA000
 """
+import argparse
 import sys
 import struct
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "retools"))
 
 D3D9_DEVICE_METHODS = {
     0: "QueryInterface", 1: "AddRef", 2: "Release",
@@ -95,16 +98,22 @@ def rva_to_offset(sections, rva):
 
 
 def main():
-    if len(sys.argv) < 4:
-        print(f"Usage: {sys.argv[0]} <game.exe> <start_va> <end_va>")
-        print(f"Example: {sys.argv[0]} game.exe 0xF96000 0xFAA000")
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("binary", help="Path to PE binary (.exe / .dll)")
+    p.add_argument("start_va", type=lambda x: int(x, 0), metavar="START_VA",
+                   help="Start of scan range (hex, e.g. 0xF96000)")
+    p.add_argument("end_va", type=lambda x: int(x, 0), metavar="END_VA",
+                   help="End of scan range exclusive (hex, e.g. 0xFAA000)")
+    args = p.parse_args()
+
+    scan_start = args.start_va
+    scan_end = args.end_va
+
+    if scan_start >= scan_end:
+        print(f"ERROR: start_va 0x{scan_start:X} >= end_va 0x{scan_end:X} — nothing to scan")
         sys.exit(1)
 
-    exe_path = sys.argv[1]
-    scan_start = int(sys.argv[2], 16)
-    scan_end = int(sys.argv[3], 16)
-
-    data = Path(exe_path).read_bytes()
+    data = Path(args.binary).read_bytes()
     image_base, sections = parse_pe(data)
 
     scan_rva_start = scan_start - image_base

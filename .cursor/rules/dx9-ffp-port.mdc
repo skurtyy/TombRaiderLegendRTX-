@@ -149,3 +149,7 @@ All the Vibe RE tools described in the workspace instructions (retools, livetool
 - `livetools steptrace` on a rendering function to understand control flow
 - `retools.search strings --xrefs` to find error messages or shader-related strings
 - `retools.xrefs` / `retools.callgraph --up` to find who calls rendering functions
+
+## Notes
+- Do not change the time frame of the logging (unless specified by the user). The delay is important to ensure the user is able to get into the game with actual geometry being drawn before the logs start, otherwise they may get lost in the initial burst of draw calls during loading.
+- Tell the user when you want to launch a game and have them interact with it for logging or hooking purposes. They MUST interact with the game to have this task be useful.
