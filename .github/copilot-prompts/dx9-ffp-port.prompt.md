@@ -57,7 +57,7 @@ The top of `d3d9_device.c` has a `GAME-SPECIFIC` section with `#define`s that mu
 Beyond the defines, users may need to modify:
 - `WD_DrawIndexedPrimitive` — draw call routing (which draws get FFP vs shader pass-through)
 - `WD_DrawPrimitive` — UI/particle handling
-- `FFP_Setup` — texture stage and render state configuration
+- `FFP_SetupLighting`, `FFP_SetupTextureStages`, `FFP_ApplyTransforms` — FFP render state and matrix configuration
 - `AlbedoStage` in proxy.ini — which texture stage holds the diffuse/albedo
 
 ## Porting Workflow
@@ -93,9 +93,9 @@ python -m retools.decompiler <game.exe> <call_site_addr> --types patches/<projec
 **Dynamic approach:** Trace `SetVertexShaderConstantF` calls live:
 ```bash
 python -m livetools trace <call_addr> --count 50 \
-    --read "[esp+4]:4:uint32; [esp+8]:4:uint32; [esp+c]:64:float32"
+    --read "[esp+8]:4:uint32; [esp+10]:4:uint32; *[esp+c]:64:float32"
 ```
-This captures: device ptr, startRegister, registerCount, and the actual float data.
+This captures: startRegister, Vector4fCount, and the actual float data (first 4 vec4 constants, dereferenced from `pConstantData`).
 
 **How to identify matrices:**
 - View matrix: changes with camera movement, contains camera orientation
