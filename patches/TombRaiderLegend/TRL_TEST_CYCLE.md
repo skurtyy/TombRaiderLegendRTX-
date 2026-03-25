@@ -55,12 +55,12 @@ If ANY clean screenshot is missing a stage light, the build **FAILS**.
 Each build gets a folder in `TRL tests/`:
 ```
 TRL tests/build-NNN-<description>/
-  SUMMARY.md          — test results, config, what changed
+  SUMMARY.md          — detailed test results (see template below)
   screenshots/        — all captured screenshots (hash debug + clean render)
   d3d9_device.c       — proxy source at time of test
 ```
 
-Use GitHub MCP `push_files` tool to upload (git push has LFS issues with this repo).
+Push via `git push origin main` (we're on the `main` branch tracking `origin/main`).
 
 Commit message format:
 ```
@@ -71,6 +71,64 @@ For passing builds:
 ```
 test: build-NNN miracle — <description> — hashes STABLE, lights PASS
 ```
+
+## SUMMARY.md Template
+
+Every build SUMMARY.md must include ALL of these sections. See `TRL tests/build-017-fixed-culling-nops/SUMMARY.md` for a full example.
+
+```markdown
+# Build NNN — <Description>
+**Date:** YYYY-MM-DD
+**Build:** <proxy mode description>
+**Result: <PASS/FAIL> — <one-line summary>**
+
+## What Changed (vs Build NNN-1)
+Table: | Change | Before | After |
+
+## Configuration
+Table: Resolution, proxy mode, skinning, culling patches, hash rules, vertex capture, fused world-view, replacement assets, backface culling
+
+## Anti-Culling Patches Applied
+Table: | Layer | Target | Patch | Purpose |
+
+## Test Parameters
+Table: A strafe duration, D strafe duration, screenshots per phase
+
+## Proxy Log Metrics
+Table: | Metric | Value | Status |
+Include: frustum threshold, NOP count, scene draws, vpValid, passthrough, xformBlocked, skippedQuad, crash
+
+## Hash Stability Analysis
+### Method — describe how test was run
+### Screenshots — table of all files with phase/description/position
+### Frame-by-Frame Analysis
+For each pair of consecutive screenshots, table comparing specific geometry elements:
+| Geometry | Color in shot A | Color in shot B | Match? |
+Call out SAME or SHIFTED for each element.
+
+### Clean Render Analysis — Stage Lights
+| Screenshot | Red Light | Green Light | Verdict |
+Each screenshot gets VISIBLE or NOT VISIBLE for each light.
+
+## Key Observations
+Numbered list of important findings, root cause analysis, what was learned.
+
+## Mistakes to Avoid in Future Builds
+Bullet list of things NOT to repeat, based on what went wrong or what was discovered.
+
+## Files
+List of included artifacts.
+```
+
+## Mistakes From Previous Builds (DO NOT REPEAT)
+
+- **Frustum threshold 1e30 is WRONG** (build 016) — game check is `skip if distance <= threshold`, so 1e30 culls everything. Must be `0.0f`.
+- **Hash view alone does NOT confirm anti-culling** — culling happens behind the camera. Stage lights are the only definitive test.
+- **`0x407150→ret` may be too aggressive** (build 017) — it prevents the entire scene traversal function from running. Some geometry may depend on this function for submission, not just visibility marking.
+- **VK_MAP must include `]`** (build 016-017) — without `0xDD` in gamectl.py VK_MAP, NVIDIA overlay screenshots are never captured and tests appear to pass with zero evidence.
+- **`user.conf` overrides `rtx.conf`** (build 016) — Remix loads config layers in order. `rtx.enableReplacementAssets = False` in user.conf silently disables all mod lights/materials.
+- **Do NOT change the test procedure** — only the random A/D hold time (1-10s) varies. One A press, one D press, screenshots at each position.
+- **Do NOT batch-push test results** without actual code changes between runs.
 
 ## Known Issues & Fix Areas
 
