@@ -50,6 +50,7 @@ from pathlib import Path
 INPUT_KEYBOARD       = 1
 INPUT_MOUSE          = 0
 KEYEVENTF_KEYUP      = 0x0002
+KEYEVENTF_SCANCODE   = 0x0008
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP   = 0x0004
 SW_RESTORE           = 9
@@ -262,7 +263,10 @@ def _make_key_input(vk: int, up: bool = False) -> INPUT:
     inp.type = INPUT_KEYBOARD
     inp.union.ki.wVk   = vk
     inp.union.ki.wScan = user32.MapVirtualKeyW(vk, 0)
-    inp.union.ki.dwFlags = KEYEVENTF_KEYUP if up else 0
+    flags = KEYEVENTF_SCANCODE
+    if up:
+        flags |= KEYEVENTF_KEYUP
+    inp.union.ki.dwFlags = flags
     inp.union.ki.time = 0
     inp.union.ki.dwExtraInfo = None
     return inp
@@ -319,6 +323,7 @@ def send_keys(hwnd: int, sequence: str, delay_ms: int = 200) -> dict:
             time.sleep(ms / 1000.0)
             actions.append({"action": "wait", "ms": ms})
         elif upper.startswith("HOLD:"):
+            focus_hwnd(hwnd)
             parts = token.split(":")
             key = parts[1]
             ms  = int(parts[2]) if len(parts) > 2 else 500
