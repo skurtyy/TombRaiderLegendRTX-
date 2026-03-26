@@ -22,11 +22,12 @@ No proxy code changes from previous build. This is a clean re-run with randomize
 
 ## Retools Findings (from static-analyzer subagent)
 
-*Static-analyzer still running at time of packaging — see findings.md for full output when available.*
+On-disk trl.exe has **no modifications** at either patch address — both contain original game code. This confirms the proxy applies patches at runtime (memory write on load), not to the binary on disk.
 
-Key patch sites to verify:
-- `0x407150`: Should be `RET` (C3)
-- `0x4070F0 + N`: Should be `NOP` bytes (90) at 7 cull jump sites
+- **0x407150** — Standard function prologue: `push ebp; mov ebp,esp; and esp,-0x10; sub esp,0x1E4`. No RET inserted. The cull function is patched to RET *at runtime* by the proxy DLL.
+- **0x4070F0** — Tail of a prior function ending at 0x407107 with `ret`, followed by INT3 padding (0x407108-0x40710F), then SSE vector-add helper at 0x407110. No NOP bytes — this region is original code. Scene traversal NOPs are also runtime-only.
+
+**Conclusion:** The proxy's runtime patching is the active mechanism. The proxy log entry "Patched frustum cull function to ret (0x407150)" and "NOPed scene traversal cull jumps: 7" confirms these are applied to process memory each run. No binary modification needed or present.
 
 ## Ghidra MCP Findings
 
