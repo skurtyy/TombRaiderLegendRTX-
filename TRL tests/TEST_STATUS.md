@@ -1,8 +1,8 @@
 # TRL RTX Remix — Test Status Report
 
-**Last reviewed:** 2026-03-25
-**Builds reviewed:** 001, 002, 016, 017, 018
-**Overall status:** FAILING — anti-culling incomplete, geometry disappears on camera movement
+**Last reviewed:** 2026-03-27
+**Builds reviewed:** 001, 002, 016–033 (20 builds, 003–015 not preserved)
+**Overall status:** FAILING — per-light culling gates patched, sector light list population is the remaining blocker
 
 ---
 
@@ -10,81 +10,113 @@
 
 ### What Works
 
-1. **Asset hash stability (static camera):** Hash colors are consistent frame-to-frame and across game restarts when the camera doesn't move. The hash rule `indices,texcoords,geometrydescriptor` (excluding positions) produces deterministic, session-reproducible hashes.
+1. **Asset hash stability (static + moving camera):** Hash rule `indices,texcoords,geometrydescriptor` produces stable, session-reproducible hashes. Lara's character model is rock-solid across all positions and sessions. World geometry hashes are stable since sector visibility patches were added (build 028+).
 
-2. **Character model (Lara) hashes are rock-solid.** Cyan/green hash color is identical across all positions, strafes, and sessions in every build tested. With `ENABLE_SKINNING=0`, the raw vertex data doesn't change.
+2. **Proxy transform pipeline:** View/Proj matrices read from game memory (`0x010FC780`, `0x01002530`), World computed via WVP decomposition. 100% of draws processed (passthrough=0, xformBlocked=0, vpValid=1) in all recent builds.
 
-3. **Proxy transform pipeline:** View/Proj matrices read from game memory (`0x010FC780`, `0x01002530`), World computed via WVP decomposition. 100% of draws processed (passthrough=0, xformBlocked=0) in all builds.
+3. **All geometry culling defeated:**
+   - Frustum threshold stamped to -1e30 per BeginScene
+   - Per-object frustum function RETed at 0x407150
+   - 7 scene traversal cull jumps NOPed
+   - Backface culling forced to D3DCULL_NONE
+   - Cull mode globals stamped (0xF2A0D4/D8/DC)
+   - Sector/portal visibility gates NOPed (0x46C194, 0x46C19D) — produced 65x draw count increase
 
-4. **Per-frame frustum threshold re-stamp:** BeginScene overwrites `0xEFDD64` to `0.0f` every scene, defeating the game's per-frame recomputation from camera parameters.
+4. **Per-light culling gates defeated:**
+   - Light frustum 6-plane test NOPed (0x60CE20)
+   - Light broad-visibility test NOPed (0x60CDE2)
+   - `Light_VisibilityTest` patched → always TRUE (0x60B050 → `mov al,1; ret 4`, build 031)
+   - Sector light count gate NOPed (0xEC6337, build 033)
 
-5. **Input delivery fixed (build 018):** `SendInput` now sends `KEYEVENTF_SCANCODE` flag so DirectInput-based TRL actually receives A/D keypresses. All builds before 018 had false-positive movement tests — Lara never actually moved.
+5. **Automated test pipeline:** Two-phase (hash debug + clean render), randomized movement, scancode input delivery confirmed working since build 018.
+
+6. **Stage lights visible at baseline position:** Both red and green stage lights appear correctly in screenshot 1 (Lara at start position) in all recent builds.
 
 ### What Fails
 
-1. **Stage lights disappear on D-strafe (build 017, 018).** The green light (`mesh_AB241947CA588F11`) vanishes after ~8s of rightward movement. The red light sometimes also vanishes. This means either:
-   - The anchor geometry is being culled by an unpatched path
-   - The anchor geometry is unloaded by level streaming (not frustum culling)
-   - The mesh hash changed at the new position (LOD swap)
+1. **Stage lights disappear when Lara moves far from stage.** Lights are visible at baseline (close to stage) but vanish when Lara walks away. Root cause confirmed: the per-sector light array at `[sector+0x1B0]` is only populated for sectors near the camera. When Lara enters a different sector, its light count is 0 and `RenderLights_FrustumCull` is never called.
 
-2. **World geometry hash colors shift (build 017).** Ground, rocks, and foliage show different hash colors after D-strafe vs baseline. Lara stays stable but environment hashes change — either different geometry is loaded or the same geometry produces different hashes.
+2. **Sector light list population unpatched.** `FUN_006033d0` and `FUN_00602aa0` (called in `RenderScene_TopLevel` at 0x60A0F0 before `RenderScene_Main`) build per-sector light lists with a proximity filter. This filter is the last unpatched culling mechanism.
 
-3. **Incomplete anti-culling.** Three layers patched but geometry still disappears:
-   - Layer 1: `0x407150` → `ret` (per-object frustum test)
-   - Layer 2: threshold `0.0` + 7 NOP jumps (scene traversal distance/boundary checks)
-   - Layer 3: `D3DCULL_NONE` (backface culling)
-   - **Missing:** level streaming/sector system, LOD alpha fade (`0x446580`), possible scene graph sector early-outs
+3. **Test macro broken (build 033).** The automated macro captured the in-game pause menu instead of gameplay for all 6 screenshots. An ESCAPE keypress is needed after level load to dismiss the menu. Build 033's proxy changes (0xEC6337 NOP) are untested.
 
 ### Hurdles
 
-1. **Level streaming vs frustum culling ambiguity.** When geometry disappears at distance, it's unclear whether it's frustum-culled (patchable) or streamed out by the sector/room system (much harder to disable). Need to trace the scene graph to distinguish these paths.
+1. **Sector light list builder not yet located precisely.** `FUN_006033d0` and `FUN_00602aa0` are candidate functions but need decompilation to confirm which one applies the proximity filter and where to patch it.
 
-2. **`0x407150 → ret` may be over-aggressive.** This patches the entire `SceneTraversal_CullAndSubmit` function (4049 bytes) to return immediately. Some geometry may depend on this function for *submission*, not just visibility marking. The ret patch might prevent geometry from being submitted at all in certain configurations.
+2. **`sector+0x84` gate in `RenderScene_Main`.** Even with a non-zero light count, `RenderScene_Main` only calls the light pass if `sector+0x84 + sector+0x94 != 0`. The function that sets this field per-frame is unknown — if it also uses proximity, disabling the light list builder's filter may not be sufficient alone.
 
-3. **LOD system at `0x446580`** has 10 callers and may fade geometry to invisible at distance. Not yet patched or investigated.
+3. **Test macro reliability.** Build 033 exposed that the macro can capture the pause menu. This needs a one-time fix before results can be trusted again.
 
-4. **False positives in earlier builds.** Builds 001-016 passed hash stability tests but Lara wasn't moving — the scancode fix in build 018 revealed that all prior movement tests were invalid. Only the static-camera baseline results are trustworthy.
+4. **Remaining unexplored light path.** Light Draw virtual method (`vtable[0x18]` per light) may have internal culling that activates after all upstream gates are bypassed (hypothesis from build 025, never confirmed).
 
 ---
 
 ## Build-by-Build Summary
 
-| Build | Date | Result | Key Change | Key Finding |
-|-------|------|--------|------------|-------------|
-| 001 | 2026-03-24 | PASS | Baseline passthrough + transform override | Hashes stable (static camera), cross-session reproducible |
-| 002 | 2026-03-24 | PASS | Stable hash confirmation | Two-phase test confirms hash stability, RTX path tracing works |
-| 016 | 2026-03-25 | PASS* | 3-layer anti-culling, frustum threshold fix | Draw count stabilized 91.8K; *movement was broken (false positive) |
-| 017 | 2026-03-25 | FAIL | NOPs moved into proxy, BeginScene re-stamp | Lights disappear after D-strafe, hash colors shift |
-| 018 | 2026-03-25 | FAIL | Scancode fix — movement actually works now | Green light disappears on D-strafe; confirms culling still active |
+| Build | Result | Key Change | Key Finding |
+|-------|--------|------------|-------------|
+| 001 | PASS | Baseline passthrough + transform override | Hashes stable (static camera), cross-session reproducible |
+| 002 | PASS | Two-phase test confirmation | RTX path tracing works, hash stability confirmed |
+| 016 | PASS* | 3-layer anti-culling + frustum threshold | Draw count 91.8K; *movement was broken (false positive — no scancode) |
+| 017 | FAIL | NOPs in proxy + BeginScene re-stamp | Lights disappear after D-strafe, hash colors shift |
+| 018 | FAIL | Scancode fix — movement actually works | Green light disappears on D-strafe; real movement confirmed |
+| 019 | PASS* | Same code as 018, different RNG seed | False positive — wrong screenshots evaluated |
+| 020 | FAIL | Fixed screenshot selection | Build 019 was false positive; red light missing in 2/3 shots |
+| 021 | PASS* | VS 2026 Insiders build fix | False positive — Lara didn't move |
+| 022 | FAIL | Confirmed exe is unmodified (runtime-only patches) | D held too long, Lara left stage area |
+| 023 | FAIL | Light frustum NOPs in wrong source file | Bug: repo-root proxy/ not compiled — always edit patches/ proxy |
+| 024 | FAIL | Light frustum NOPs in correct source | Shot 1 both lights visible; shots 2-3 fail — zone hypothesis formed |
+| 025 | FAIL | Pending-render flag NOPs (0x603832, 0x60E30D) | No effect — bottleneck is not in caller chain flags |
+| 026 | FAIL | LightVolume_UpdateVisibility state NOPs (5 addrs) | Patches NOT in proxy log — silent VirtualProtect failure |
+| 027 | FAIL | Same patches + randomized movement | Draw counts 93K-189K confirm sector patch works; issue is light range |
+| 028 | FAIL | Sector visibility NOPs + removed native light patches | Geometry fully submitting (65x increase); clean render dark |
+| 029 | FAIL | Cull globals stamped + light frustum NOP + threshold -1e30 | All geometry culling defeated; light disappearance remains |
+| 030 | FAIL | Baseline retest + Ghidra analysis | Root cause: `Light_VisibilityTest` at 0x60B050 unpatched |
+| 031 | FAIL | `Light_VisibilityTest` → always TRUE (0x60B050) | Lights at baseline; disappear at distance — root moved to sector light list |
+| 032 | FAIL | Config flag 0x01075BE0 = 1 ("Disable extra light culling") | No effect — flag has no code xrefs, not connected to light collection |
+| 033 | FAIL | NOP at 0xEC6337 (sector light count gate); no proxy changes | Macro failure — pause menu blocked all screenshots; result inconclusive |
 
-*Build 016 PASS is unreliable — movement input wasn't reaching the game.
+*False positive — movement input not reaching game or Lara didn't move.
 
 ---
 
 ## What's Been Done
 
 - [x] D3D9 proxy DLL with shader passthrough + transform override
-- [x] Asset hash rule tuned (`indices,texcoords,geometrydescriptor`, excluding positions)
+- [x] Asset hash rule: `indices,texcoords,geometrydescriptor` (excluding positions)
 - [x] View/Proj matrix reading from game memory
 - [x] World matrix decomposition from WVP
-- [x] Frustum threshold patch (`0xEFDD64 → 0.0f`) with per-frame re-stamp
-- [x] Per-object frustum function patched (`0x407150 → ret`)
-- [x] 7 scene traversal cull jumps NOPed (distance + boundary checks)
-- [x] D3D backface culling forced to `D3DCULL_NONE`
-- [x] Automated two-phase test pipeline (hash debug + clean render)
-- [x] Scancode input fix for DirectInput-based games
+- [x] Frustum threshold stamped to -1e30 per BeginScene (0xEFDD64)
+- [x] Per-object frustum function RETed (0x407150)
+- [x] 7 scene traversal cull jumps NOPed
+- [x] Backface culling forced to D3DCULL_NONE
+- [x] Cull mode globals stamped (0xF2A0D4/D8/DC)
+- [x] Sector/portal visibility gates NOPed (0x46C194, 0x46C19D)
+- [x] Light frustum 6-plane test NOPed (0x60CE20)
+- [x] Light broad-visibility test NOPed (0x60CDE2)
+- [x] `Light_VisibilityTest` patched → always TRUE (0x60B050)
+- [x] Sector light count gate NOPed (0xEC6337)
+- [x] Automated two-phase test pipeline (hash debug + clean render, randomized movement)
+- [x] Scancode input fix for DirectInput games
 - [x] Stage light anchoring via mod.usda mesh hashes
-- [x] `user.conf` override issue identified and fixed (`rtx.enableReplacementAssets`)
-- [x] VK_MAP `]` key added for NVIDIA screenshot capture
+- [x] `user.conf` override issue identified and fixed
+- [x] Source file bug identified: always edit `patches/TombRaiderLegend/proxy/d3d9_device.c`
+- [x] VirtualProtect failure detection: always verify patches in proxy log
+- [x] Engine config flag at 0x01075BE0 investigated — no effect (build 032)
 
 ## What Still Needs To Be Done
 
-- [ ] **Investigate level streaming/sector system** — determine if geometry disappearance is streaming (room unload) or an unpatched culling path
-- [ ] **Trace `0x446580` LOD fade system** — 10 callers, may fade geometry to invisible at distance
-- [ ] **Re-evaluate `0x407150 → ret` patch** — may be too aggressive; consider patching individual cull checks inside the function instead of disabling it entirely
-- [ ] **Identify scene graph sector boundaries** — the scene traversal may have sector-based early-outs not covered by current NOP patches
-- [ ] **Test with shorter strafe distances** — determine the exact distance threshold where lights disappear (helps distinguish culling vs streaming)
-- [ ] **Achieve a "miracle" build** — both stage lights visible in ALL positions (baseline + A-strafe + D-strafe) with stable hash colors
+- [ ] **Fix test macro pause menu** — add ESCAPE keypress after level load; re-run build 033 proxy code to get valid screenshots for the 0xEC6337 NOP
+- [ ] **Decompile `FUN_006033d0` and `FUN_00602aa0`** — identify which one populates per-sector light lists and where the proximity filter lives
+- [ ] **Patch the sector light list builder** — remove proximity filter so all level lights enter every sector's list
+- [ ] **Investigate `sector+0x84` setter** — `RenderScene_Main` gates the light pass on this field; find the function that sets it and confirm it doesn't also apply proximity filtering
+- [ ] **Achieve a "miracle" build** — both stage lights visible in ALL positions with stable hashes
+
+### Lower Priority
+- [ ] Investigate Light Draw virtual method (vtable[0x18]) for internal culling — only if sector light list patch is insufficient
+- [ ] Investigate LOD alpha fade at 0x446580 (10 callers) — may fade geometry at distance, low priority post-sector-patch
+- [ ] Investigate particle/effect distance culling at 0x446B5A, 0x446BE0 — not related to current blocker
 
 ---
 
