@@ -1,7 +1,7 @@
 # TRL RTX Remix — Results Whiteboard
 
-**Last updated:** 2026-03-27 (session 3)
-**Builds completed:** 001-035 (003-015, 034 not preserved)
+**Last updated:** 2026-03-27 (session 4)
+**Builds completed:** 001-044 (003-015, 034, 043 not preserved)
 **Goal:** Get Tomb Raider Legend rendering correctly with RTX Remix — stable hashes, no culling, anchored lights
 
 ---
@@ -22,25 +22,27 @@
 | Light frustum rejection disabled | DONE | NOP at 0x60CE20 |
 | Light visibility pre-check disabled | DONE | `Light_VisibilityTest` at 0x60B050 → `mov al,1; ret 4` (build 031) |
 | Sector light count gate disabled | DONE | NOP at 0xEC6337 (build 035) |
-| GREEN light stable at all positions | **DONE** | `mesh_AB241947CA588F11` anchor works — its sector has non-zero static lights |
-| RED light stable at all positions | **FAILING** | Red anchor meshes are in sectors with 0 static lights at `[sector_data+0x664]` |
-| Remix light anchors hold on movement | **PARTIAL** | Green holds, red disappears — sector data issue, not culling |
+| GREEN light stable at all positions | **FAILING** | Build 038 confirmed: both stage lights vanish at distance; "green at distance" in 039/041 is positional, not stable |
+| RED light stable at all positions | **FAILING** | Both lights absent at distance; "red" at distance was fallback light (build 038 diagnostic) |
+| Remix light anchors hold on movement | **FAILING** | Root cause reframed (build 038): anchor geometry not submitted at distance — geometry culling, not light culling |
 
 ---
 
 ## The Two Remaining Problems
 
-### Problem 1: Lights Disappear on Movement
+### Problem 1: Anchor Geometry Not Submitted at Distance
 
-**`Light_VisibilityTest` patched (build 031) — lights still disappear at distance.** The patch correctly bypasses per-light AABB checks but is insufficient on its own.
+**Root cause reframed (build 038):** The "red light at distance" in builds 019-037 was the fallback light (`rtx.fallbackLightRadiance = 3, 0.3, 0.3`). With neutral fallback (build 038), BOTH stage lights vanish when Lara walks away from the stage. This means the engine's light culling functions (RenderLights_FrustumCull, Light_VisibilityTest, etc.) are irrelevant — Remix lights are anchored to geometry hashes, and when the anchor geometry isn't submitted as a draw call, the lights vanish.
 
-**Root cause (confirmed build 031):** `RenderScene_Main` (0x603810) iterates sectors and only calls `RenderScene_LightPass` if `sector+0x84 + sector+0x94 != 0`. The per-sector light array at `[sector+0x1B0]` is only populated for sectors near the camera. When Lara moves to a sector that does not include the stage lights in its list, `[sector+0x1B0]` (light count) is 0 and `RenderLights_FrustumCull` is skipped entirely.
+**All identified culling paths in SceneTraversal_CullAndSubmit (0x407150) exhausted (build 040):** 11 of 12 conditional exits NOPed (the 12th is a safety check for LOD count == 0). Draw counts rose from ~93K (with RET) to ~180-190K (without RET + 11 NOPs). Still fails.
 
-**Config flag tried (build 032):** Stamped engine flag at `0x01075BE0` ("Disable extra static light culling and fading") — no effect. Flag has no code xrefs and is not connected to the light collection system.
+**Multiple render paths confirmed (build 044):** Upstream caller analysis revealed 3 separate render paths: (1) RenderVisibleSectors → RenderSector, (2) SceneTraversal wrapper → 0x407150, (3) moveable object loop at 0x40E2C0. Patches applied to all three, yet anchor geometry disappears.
 
-**Sector light count gate NOPed (build 033):** Added NOP at `0xEC6337` to bypass the light count gate. Untested in valid screenshots (macro failure in build 033).
+**Working hypothesis (build 044):** The anchor meshes may be **terrain geometry** going through TerrainDrawable (0x40ACF0) / TERRAIN_DrawUnits — a separate rendering path with its own culling, not covered by any current patches.
 
-**Remaining suspects:** `FUN_006033d0` and `FUN_00602aa0` (called before `RenderScene_Main` in `RenderScene_TopLevel`) — these likely populate per-sector light lists and apply proximity filtering. Finding and patching the proximity filter there is the next step.
+**Camera-sector proximity filter NOPed (build 044):** NOP at 0x46B85A (RenderSector JNE) — no effect on pattern.
+
+**Additional NOPs tried (builds 037, 040, 041):** RenderLights gate (0x60E3B1), sector light count clear (0x603AE6), far clip stamp (0x10FC910 → 1e30f), 4 additional cull flags in 0x407150 (0x4071CE, 0x407976, 0x407B06, 0x407ABC) — none resolved the issue.
 
 ### Problem 2: Hash Instability (Believed Resolved)
 
@@ -66,10 +68,16 @@ Every culling mechanism discovered and its patch status:
 | 10. Light visibility state NOPs | 5 addresses in LightVolume_UpdateVisibility | Visibility state check | Attempted — NOT confirmed in log | 026 |
 | 11. Light_VisibilityTest | 0x0060B050 | Pre-frustum distance/sphere/cone gate per light | Yes — `mov al,1; ret 4` | 031 |
 | 12. Sector light count gate | 0xEC6337 (inside FUN_00EC62A0) | JNZ gate: skips light pass if sector light count == 0 | Yes — NOPed | 033 |
-| 13. Sector light list population | FUN_006033d0 / FUN_00602aa0 | Upstream: builds per-sector light arrays (proximity filter) | **NO — root cause of remaining failure** | — |
+| 13. Sector light list population | FUN_006033d0 / FUN_00602aa0 | Upstream: builds per-sector light arrays (proximity filter) | IRRELEVANT — not the root cause (build 038 reframe) | — |
 | 14. LOD alpha fade | 0x446580 | 10 callers, may fade geometry invisible at distance | **UNEXPLORED** | — |
 | 15. Scene graph sector early-outs | Unknown | Sector-based submission skipping | **UNEXPLORED** (may be covered by layer 6) | — |
-| 16. Light Draw virtual method | vtable[0x18] per light | Internal culling inside light's Draw method | **UNEXPLORED** (hypothesis from build 025) | — |
+| 16. Light Draw virtual method | vtable[0x18] per light | Internal culling inside light's Draw method | IRRELEVANT — Remix lights anchor to geometry, not engine light functions | — |
+| 17. RenderLights gate | 0x60E3B1 | JE skipping RenderLights_FrustumCull when sector light count = 0 | Yes — NOPed | 037 |
+| 18. Sector light count clear | 0x603AE6 | MOV zeroing [eax+0x1B0] per frame | Yes — NOPed | 037 |
+| 19. Additional SceneTraversal exits (4x) | 0x4071CE, 0x407976, 0x407B06, 0x407ABC | Object disable flag (A+B), far clip, draw distance fade-out inside 0x407150 | Yes — all 4 NOPed | 040 |
+| 20. Far clip distance global | 0x10FC910 | g_farClipDistance stamped to 1e30f per BeginScene | Yes — stamped | 041 |
+| 21. Camera-sector proximity filter | 0x46B85A | JNE in RenderSector skipping objects without flag 0x200000 when not in camera sector | Yes — NOPed | 044 |
+| 22. Terrain rendering path | TerrainDrawable (0x40ACF0) / TERRAIN_DrawUnits | Separate draw path for terrain geometry, own culling | **UNEXPLORED — prime suspect** | — |
 
 ---
 
@@ -115,7 +123,24 @@ Every culling mechanism discovered and its patch status:
 | 033 | FAIL | Same proxy + new NOP at 0xEC6337 (sector light count gate) | Macro failed — pause menu blocked all screenshots; proxy healthy; result inconclusive |
 | 035 | FAIL | Sector light count gate NOP confirmed + Light_VisibilityTest patch + directional red fallback | Green stable with gate NOP; red anchor meshes all in sectors with `[sector_data+0x664]=0` — gate only helps sectors with non-zero static data |
 
-**Conclusion:** Per-light culling gates all patched and confirmed. Green light stable at all positions. Red light fails because all candidate anchor meshes are in sectors with zero native static light data — the sector gate NOP alone cannot fix sectors that have no data to gate on.
+**Conclusion (revised build 038):** Per-light culling gates were the wrong target. The "red light at distance" was the fallback light. Both stage lights vanish because anchor geometry isn't submitted — geometry culling is the real problem.
+
+### Phase 4: Geometry Submission Investigation (Builds 036-044)
+
+| Build | Result | What We Tested | What We Learned |
+|-------|--------|----------------|-----------------|
+| 036 | FAIL | Re-test with fixed automation (no proxy changes) | Green culled at sector boundary; confirmed sector light count gate at 0x60E345 as next target |
+| 037 | FAIL | RenderLights gate NOP (0x60E3B1) + sector light count clear NOP (0x603AE6) | Green still missing at distance; hypothesized "red" at distance may be fallback light |
+| 038 | FAIL | Changed fallback light to neutral white (1,1,1) to diagnose | **ROOT CAUSE REFRAME: both lights gone at distance; "red" was fallback — problem is geometry, not lights** |
+| 039 | FAIL | Removed RET at 0x407150 (function now executes with 7 NOPs active) | Draw counts 93K→180K; green appears at shot 3 (extreme distance); shot 2 still loses both |
+| 040 | FAIL | 11 cull NOPs inside SceneTraversal_CullAndSubmit (all safe exits) | Draw counts ~190K; all 11 paths NOPed — culling NOT in this function |
+| 041 | FAIL | Far clip distance stamp (0x10FC910 → 1e30f) per BeginScene | Same pattern as 039; far clip not the issue |
+| 042 | FAIL | Re-parented lights to mesh_7DFF31ACB21B3988 (largest captured mesh) | Worse — all shots show fallback only; large mesh not always drawn; reverted immediately |
+| 044 | FAIL | Camera-sector proximity filter NOP (0x46B85A in RenderSector) | Same pattern; 3 render paths all patched; terrain path (0x40ACF0) identified as prime suspect |
+
+*Note: Build 043 (aggressive 7-NOP set) crashed and was not preserved.*
+
+**Conclusion:** All identified culling paths in geometry submission (11 NOPs in 0x407150, sector visibility, proximity filter, far clip) exhausted. Anchor geometry still disappears. Terrain rendering path (TerrainDrawable / TERRAIN_DrawUnits) is the unexplored prime suspect.
 
 ---
 
@@ -123,13 +148,12 @@ Every culling mechanism discovered and its patch status:
 
 | Idea | Why It Matters | Difficulty |
 |------|----------------|------------|
-| Decompile `FUN_006033d0` and `FUN_00602aa0` | These are called before `RenderScene_Main` and likely populate per-sector light lists with proximity filter | Medium — static analysis needed |
-| Patch the proximity filter in light list builder | Remove the "only include nearby lights" condition so all lights enter every sector's list | Hard — need to find and understand the filter |
-| Force `sector+0x84` non-zero for all sectors | `RenderScene_Main` gates on this field; if it's 0 a sector skips the light pass entirely | Medium — find the setter function |
-| Patch Light Draw virtual method internal culling | Build 025 hypothesis: light's own Draw method may clip | Medium — need vtable analysis |
+| Investigate TerrainDrawable (0x40ACF0) / TERRAIN_DrawUnits | Prime suspect: separate terrain render path with own culling; anchor meshes may be terrain | Medium — static analysis needed |
+| dx9tracer frame capture at near vs far position | Definitively identifies which draw calls disappear; would show if anchor hashes are absent vs just invisible | Medium — setup dx9tracer |
+| Find Lara's character mesh hash | Her body is always drawn; anchoring lights to her hash would guarantee visibility at all positions | Easy — hash debug screenshots |
+| Find and NOP terrain culling path | TerrainDrawable likely has distance/sector culling separate from SceneTraversal | Hard — need to find and understand the path |
 | Patch LOD alpha fade at 0x446580 | 10 callers, may fade geometry at distance | Medium — verify if affects anything post-sector-patch |
-| Investigate 0x41F96A object visibility check | Uses same threshold, different code path | Low priority — sector patch may cover this |
-| Investigate particle/effect distance culling at 0x446B5A, 0x446BE0 | Particles/effects may disappear at distance | Low priority — not related to lights |
+| Investigate 0x41F96A object visibility check | Uses same threshold, different code path | Low priority |
 
 ---
 
@@ -168,16 +192,31 @@ g_pEngineRoot (+0x214) → TRLRenderer* (+0x0C) → IDirect3DDevice9*
 | c16+ | Bone/skin matrices |
 | c39 | Utility {2.0, 0.5, 0.0, 1.0} |
 
-### Light Pipeline
+### Render Paths (upstream caller analysis, build 044)
 ```
-FUN_006033d0 / FUN_00602aa0 ← UNPATCHED, BUILDS PER-SECTOR LIGHT LISTS (proximity filter here)
+RenderFrame (0x450B00)
+  ├── RenderVisibleSectors (0x46C180) → RenderSector (0x46B7D0) ← proximity filter NOPed 0x46B85A
+  ├── SceneTraversal wrapper (0x443C20) → SceneTraversal_CullAndSubmit (0x407150) ← all 11 NOPs + no RET
+  └── Moveable object loop (0x40E2C0)
+TerrainDrawable (0x40ACF0) / TERRAIN_DrawUnits ← UNEXPLORED, PRIME SUSPECT
+```
+
+### Light Pipeline (IRRELEVANT since build 038 — lights are Remix geometry-anchored)
+```
+FUN_006033d0 / FUN_00602aa0 ← IRRELEVANT (per build 038 root cause reframe)
   └→ FUN_00EC62A0 (0xEC62A0) — reads [sector_data+0x664], populates [sector+0x1B0] count
        └→ Sector light count gate (0xEC6337) ← NOPed (build 033)
-            └→ Light_VisibilityTest (0x60B050) ← patched → always TRUE (build 031)
-                 └→ Frustum 6-plane test (0x60CE20) ← patched (NOP)
-                      └→ LightVolume::Draw (vtable[0x18] = vtable[6]) ← unexplored
-                           └→ Lights failing frustum: deferred to global list at 0x13107FC
+            └→ RenderLights gate (0x60E3B1) ← NOPed (build 037)
+                 └→ Light_VisibilityTest (0x60B050) ← patched → always TRUE (build 031)
+                      └→ Frustum 6-plane test (0x60CE20) ← patched (NOP)
 ```
+
+### Additional Globals (builds 037-041)
+| Address | Name | Notes |
+|---------|------|-------|
+| 0x60E3B1 | RenderLights gate | JE skipping light pass if sector light count 0 — NOPed (build 037) |
+| 0x603AE6 | Sector light count clear | MOV zeroing [eax+0x1B0] per frame — NOPed (build 037) |
+| 0x10FC910 | `g_farClipDistance` | Stamped to 1e30f per BeginScene (build 041) |
 
 ---
 
@@ -196,35 +235,31 @@ FUN_006033d0 / FUN_00602aa0 ← UNPATCHED, BUILDS PER-SECTOR LIGHT LISTS (proxim
 
 ## Immediate Next Step
 
-**Fix red light anchor sector data.** The green light works at all positions (its sector has static lights at `[sector_data+0x664]`). The red light fails because its anchor meshes are in sectors with 0 static lights. Three approaches to try:
+**Investigate the terrain rendering path.** All identified geometry culling paths in SceneTraversal (0x407150), RenderSector (0x46B7D0), and the moveable object loop (0x40E2C0) have been patched. Anchor geometry still disappears. The unexplored path is TerrainDrawable (0x40ACF0) / TERRAIN_DrawUnits.
 
-1. **Draw call replay in proxy**: Record the light volume DrawIndexedPrimitive calls from the first frame (when all lights render at baseline), replay them every subsequent frame. Ensures anchor hashes always present for Remix.
-2. **Runtime sector data patch**: Find the sector data base (`*(renderCtx+0x220)`) and write 1 to `[sector_data + N*0x684 + 0x664]` for all sectors. Forces all sectors to claim they have lights.
-3. **Find Lara's mesh hash**: Compare Remix captures across positions to identify Lara's body hash. Anchor red light to it — always visible.
+Two parallel tracks:
+1. **Static analysis**: Decompile TerrainDrawable (0x40ACF0) and TERRAIN_DrawUnits — find the culling condition and NOP it. Also decompile the sector iteration loop at 0x46C180 to understand per-sector object lists.
+2. **dx9tracer frame capture**: Capture one frame near stage and one frame far from stage. Diff the draw call lists to identify exactly which hashes disappear — this definitively shows whether the anchor meshes are terrain or instance geometry.
 
-**What was tried and ruled out:**
-- Multiple lights per mesh: Remix only renders the first SphereLight per mesh hash
-- Fallback light (mode 1/2): Can't balance ambient with point light — one always dominates
-- Alternative anchor meshes (7DFF, 6AF0, 5601, ECD5): All in sectors with 0 static lights
-- Boosted intensity (up to 500K): Causes Remix rendering issues above ~50K
-- Light count clear NOP (0x603AE6): Causes stale data corruption
-
-2. **Patch sector light list builder** — `FUN_006033d0` / `FUN_00602aa0` in `RenderScene_TopLevel` (0x60A0F0) populate per-sector light lists with a proximity filter. Decompile both to find and remove the filter so all level lights enter every sector's list.
+**What was tried and ruled out (since build 035):**
+- Both stage lights fully absent at distance (build 038) — confirmed geometry, not light culling
+- All 11 safe exits in SceneTraversal_CullAndSubmit NOPed (build 040) — not the issue
+- Far clip stamp to 1e30f (build 041) — no effect
+- Camera-sector proximity filter NOPed (build 044) — no effect
+- Re-parenting lights to large mesh (build 042) — made things worse; mesh not always drawn
+- RenderLights gate + sector light count clear NOPed (build 037) — irrelevant (light functions not the issue)
 
 ---
 
 ## Decision Tree for Next Failure
 
 ```
-Fix macro pause menu → re-run build 033 proxy code
-├── Lights stable at all positions → DONE (miracle build)
-└── Lights still disappear at distance
-    ├── Check proxy log: was 0xEC6337 NOP applied?
-    │   └── No → fix address
-    ├── Check: does [this+0x1B0] drop to 0 when Lara moves?
-    │   └── Yes → Sector light list not populated upstream
-    │       ├── Decompile FUN_006033d0 + FUN_00602aa0
-    │       └── Patch proximity filter in light collection function
-    └── Check: do lights appear briefly then vanish?
-        └── Yes → Light Draw method internal culling (vtable[0x18])
+Both lights gone at distance (confirmed pattern builds 038-044)
+├── dx9tracer diff: which hashes disappear?
+│   ├── Anchor hashes absent → geometry not submitted
+│   │   ├── Hashes match terrain signature → investigate TerrainDrawable (0x40ACF0)
+│   │   └── Hashes match instance signature → look at sector object list population
+│   └── Anchor hashes present → Remix side issue (anchor config or light range)
+├── Decompile TerrainDrawable (0x40ACF0) → find distance/sector culling → NOP it
+└── Fallback: find Lara's always-drawn mesh hash → anchor lights to her body
 ```
