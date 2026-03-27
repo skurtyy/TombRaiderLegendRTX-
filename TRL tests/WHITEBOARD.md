@@ -1,7 +1,7 @@
 # TRL RTX Remix — Results Whiteboard
 
-**Last updated:** 2026-03-27 (session 2)
-**Builds completed:** 001-052 (003-015 not preserved)
+**Last updated:** 2026-03-27 (session 3)
+**Builds completed:** 001-035 (003-015, 034 not preserved)
 **Goal:** Get Tomb Raider Legend rendering correctly with RTX Remix — stable hashes, no culling, anchored lights
 
 ---
@@ -113,8 +113,9 @@ Every culling mechanism discovered and its patch status:
 | 031 | FAIL | `Light_VisibilityTest` patch (0x60B050 → `mov al,1; ret 4`) | Lights at baseline; still disappear at distance — root moved to sector light list population |
 | 032 | FAIL | Config flag stamp (0x01075BE0 = 1) for "Disable extra static light culling" | No effect — flag has no code xrefs, not connected to light collection |
 | 033 | FAIL | Same proxy + new NOP at 0xEC6337 (sector light count gate) | Macro failed — pause menu blocked all screenshots; proxy healthy; result inconclusive |
+| 035 | FAIL | Sector light count gate NOP confirmed + Light_VisibilityTest patch + directional red fallback | Green stable with gate NOP; red anchor meshes all in sectors with `[sector_data+0x664]=0` — gate only helps sectors with non-zero static data |
 
-**Conclusion:** Per-light culling gates all patched. Remaining blocker is upstream sector light list population — FUN_006033d0 / FUN_00602aa0 populate per-sector lists with only nearby lights.
+**Conclusion:** Per-light culling gates all patched and confirmed. Green light stable at all positions. Red light fails because all candidate anchor meshes are in sectors with zero native static light data — the sector gate NOP alone cannot fix sectors that have no data to gate on.
 
 ---
 
