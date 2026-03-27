@@ -36,16 +36,21 @@
 │   ├── ffp_proxy.log               # Proxy diagnostic output from last test run
 │   ├── TRL_TEST_CYCLE.md           # Pass/fail criteria and common mistakes
 │   ├── AUTOMATION.md               # Test pipeline documentation
-│   ├── SUMMARY.md                  # Build 016 detailed results
 │   └── backups/                    # Timestamped backups before each proxy edit
 │
-├── TombRaiderLegendRTX-/           # Test build archive (pushed to GitHub after every run)
-│   └── TRL tests/
-│       ├── build-001-baseline-passthrough/
-│       ├── ...
-│       ├── build-019-miracle-both-lights-stable-hashes/  ← last confirmed PASS
-│       ├── build-020-lights-partial-fail/
-│       └── build-021-false-positive-lara-didnt-move/     ← latest
+├── TRL tests/                      # Test build archive (every build committed and pushed)
+│   ├── WHITEBOARD.md               # Live project status: culling layer map, open problems, decision tree
+│   ├── TEST_STATUS.md              # Build-by-build results and what remains to be done
+│   ├── build-001-baseline-passthrough/
+│   ├── ...
+│   ├── build-019-miracle-both-lights-stable-hashes/  ← last confirmed PASS
+│   └── build-044-sector-proximity-nop-same-pattern/  ← latest
+│
+├── docs/
+│   ├── research/                   # Deep analysis reports, FFP pipeline technical docs, RenderDoc captures
+│   ├── reference/                  # Definition book, rosetta stone, pipeline architecture, RTX config ref
+│   ├── guides/                     # Project setup, Ghidra install, RTX Remix integration, troubleshooting
+│   └── archive/                    # Historical session artifacts, early prompts, compass artifacts
 │
 ├── retools/                        # Static analysis toolkit (offline PE analysis)
 ├── livetools/                      # Live dynamic analysis toolkit (Frida-based)
@@ -172,6 +177,8 @@ build-NNN-<description>/
 
 Naming: `build-019-miracle-...` for PASS, `build-020-lights-partial-fail` for FAIL. Every build pushed to `skurtyyskirts/TombRaiderLegendRTX-` immediately, no batching.
 
+The full build history and culling layer map are maintained in `TRL tests/WHITEBOARD.md`.
+
 ---
 
 ## Tools Available
@@ -292,20 +299,18 @@ Always pass `--types patches/TombRaiderLegend/kb.h` to the decompiler so discove
 
 - Both red and green stage lights visible in all 3 clean render screenshots
 - Asset hashes stable across strafing positions
-- Anti-culling patches applied: `0x407150→RET`, scene traversal NOPs, `D3DCULL_NONE` hook
 
-**Latest build:** `build-021-false-positive-lara-didnt-move` (2026-03-26)
+**Latest build:** `build-044-sector-proximity-nop-same-pattern` (2026-03-27)
 
-- Both lights visible in all 3 screenshots, but Lara didn't move between them
-- Classified as false positive — test procedure issue, not a regression in proxy code
-- Code is likely still in a passing state
+- All geometry culling paths in SceneTraversal (0x407150), RenderSector (0x46B7D0), and the moveable object loop (0x40E2C0) have been patched
+- Both stage lights still vanish at distance — anchor geometry is not being submitted
+- **Root cause (build 038 reframe):** The "red light at distance" in builds 019–037 was the RTX fallback light. With a neutral fallback both lights vanish, confirming the issue is geometry submission, not light culling
 
-**Open hypotheses:**
+**Open investigation — terrain rendering path:**
 
-1. `0x407150→RET` may be over-aggressive — could suppress geometry submission for some draw configurations
-2. LOD fade system at `0x446580` (10 callers) may fade geometry to invisible without a cull flag
-3. Level sector streaming may remove geometry that frustum culling alone wouldn't explain
-4. Per-pass cull globals (`0x00F2A0D4/D8`) may be reset by game code between frames, overriding the proxy hook
+The unexplored `TerrainDrawable (0x40ACF0) / TERRAIN_DrawUnits` path is the prime suspect. All named culling layers in the scene-traversal path have been exhausted (22 layers mapped, 19 patched). Anchor meshes may be terrain geometry using a separate render path with its own culling that none of the current patches touch.
+
+See `TRL tests/WHITEBOARD.md` for the full culling layer map, build history, and decision tree.
 
 ---
 
@@ -337,7 +342,7 @@ Push to `skurtyyskirts/TombRaiderLegendRTX-`. Every build — pass or fail — g
 
 1. Read `patches/TombRaiderLegend/kb.h` — accumulated address map and struct layouts
 2. Read `patches/TombRaiderLegend/findings.md` — Ghidra and static analysis findings
-3. Check `TombRaiderLegendRTX-/TRL tests/` for the latest build folder and its `SUMMARY.md`
+3. Check `TRL tests/` for the latest build folder and its `SUMMARY.md`; read `TRL tests/WHITEBOARD.md` for the full project status
 4. Read `.claude/rules/begin-testing.md` before running any test
 5. Check `.claude/rules/tool-catalog.md` before choosing an analysis tool
 
