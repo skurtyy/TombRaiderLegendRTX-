@@ -489,7 +489,7 @@ static void trace_post(int slot, DWORD retval, DWORD *args) {
         }
     }
 
-    if (slot == SLOT_Present)
+    if (slot == SLOT_Present || slot == SLOT_EndScene)
         trace_on_present();
 }
 

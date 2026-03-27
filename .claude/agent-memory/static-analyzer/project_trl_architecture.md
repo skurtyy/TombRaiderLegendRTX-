@@ -1,6 +1,6 @@
 ---
 name: TRL Renderer Architecture
-description: Tomb Raider Legend renderer VS constant register layout and matrix upload pipeline discovered via static analysis of trl.exe
+description: Tomb Raider Legend renderer VS constant register layout, matrix upload pipeline, light class vtable hierarchy, and 5-layer culling/visibility system
 type: project
 ---
 
@@ -13,5 +13,29 @@ Tomb Raider Legend uses a custom D3D8 renderer (converted to D3D9 via dxwrapper)
 - Generic SetVSConstantF wrapper at 0xECBA40 with 34 callers covering c0 through c96
 - Blend mode switcher at 0xECBC20 is NOT a constant upload function (maps blend IDs to render states)
 
-**Why:** Understanding the constant register layout is needed for RTX Remix FFP proxy shader authoring.
-**How to apply:** Use the register map in kb.h when writing replacement vertex shaders. c0-c3 = WVP, c8-c11 = View (transposed), c39 = utility {2,0.5,0,1}.
+**Light class hierarchy (no RTTI):**
+- BaseLight: outer vtable 0xF085D4, inner vtable 0xF085E8 at this+8. Ctor 0x60B320.
+- LightGroup (container): vtable 0xF08618, secondary 0xF08614 at this+4. Ctor 0x60C240.
+- LightVolume (concrete light): vtable 0xF08740, secondary 0xF08738 at this+4. Ctor 0x6106A0. Size=0x1F0.
+  - vtable[5] (+0x14) = GetBoundingSphere (0x612C80)
+  - vtable[6] (+0x18) = **Draw (0x6124E0)** -- the concrete per-light draw method
+- Multi-inheritance pattern: each light object has two vtable ptrs at [this+0] and [this+4].
+- RenderLights_FrustumCull (0x60C7D0) dispatches via vtable[6] at +0x18 offset.
+
+**5-Layer Geometry Culling System (discovered 2026-03-26):**
+
+Layer 1 -- Sector/Portal Visibility (0x46C180): The level is divided into 8 sectors stored in a fixed array at 0x11582F8 (0x5C bytes each). Only sectors with [entry+5]&0x8 set are rendered. This flag is computed per-frame from portal connectivity relative to the camera's current sector. This is the PRIMARY reason distant geometry disappears even when frustum culling is patched. To disable: NOP je at 0x46C194 (6 bytes) and jne at 0x46C19D (6 bytes).
+
+Layer 2 -- Mesh-Level Frustum Cull (0x407150): Per-mesh AABB vs frustum planes. Already patched with RET.
+
+Layer 3 -- Object Linked List Filtering (0x450BC7): Objects iterated from g_pObjectListHead (0x10C5AA4). Flag check [obj+0xA4]&0x800 and type dispatch via Object_HasComponentType (types 0x1F, 0x24, 0x2A).
+
+Layer 4 -- Mesh Flags in Sector Renderer (0x46B7D0/0x46C320): Per-mesh flag checks [mesh+0x5C]&0x82000000 and [mesh+0x20]&0x1/0x20000/0x200000 skip individual meshes.
+
+Layer 5 -- MeshSubmit Visibility Gate (0x454AB0): Called at top of MeshSubmit (0x458630), returns nonzero to cull.
+
+**Render call chain:**
+0x452510 -> 0x450DE0 -> 0x450B00 (RenderScene) -> 0x46C180 (sector vis) + 0x443C20 (scene traversal incl. 0x407150) + object linked list loop.
+
+**Why:** Understanding all 5 culling layers is essential for RTX Remix hash stability. Patching only one layer (frustum cull) still leaves sector visibility hiding distant geometry.
+**How to apply:** Use the register map in kb.h when writing replacement vertex shaders. c0-c3 = WVP, c8-c11 = View (transposed), c39 = utility {2,0.5,0,1}. For light patching, the critical address is LightVolume::Draw at 0x6124E0. For sector culling, patch 0x46C194 and 0x46C19D. For the full list see patches/TombRaiderLegend/findings.md and kb.h.
