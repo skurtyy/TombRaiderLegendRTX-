@@ -9,7 +9,7 @@ REM Output: d3d9.dll in this directory
 REM ================================================================
 
 REM Auto-find Visual Studio via vswhere
-for /f "tokens=*" %%i in ('"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath 2^>nul') do set VSDIR=%%i
+for /f "tokens=*" %%i in ('"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -prerelease -property installationPath 2^>nul') do set VSDIR=%%i
 
 if not defined VSDIR (
     echo ERROR: Visual Studio not found. Install VS Build Tools.

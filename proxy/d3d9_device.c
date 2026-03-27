@@ -1939,6 +1939,67 @@ static void TRL_ApplyMemoryPatches(WrappedDevice *self) {
         }
     }
 
+    /* Disable light frustum culling in RenderLights_FrustumCull (0x0060C7D0).
+     * Two conditional jumps implement the per-light frustum test:
+     *
+     * 0x60CDE2: JE +0x61 (74 61) — skips light entirely when FUN_0060b050 broad
+     *           visibility check returns 0. NOP → all lights enter the frustum test.
+     *           Original: 74 61   Patched: 90 90
+     *
+     * 0x60CE20: JNP +0x18D (0F 8B 8D 01 00 00) — defers light to secondary draw
+     *           list when it fails any of the 6 frustum planes. NOP → all lights
+     *           take the immediate draw path (mode=1) instead of being deferred.
+     *           Original: 0F 8B 8D 01 00 00   Patched: 90 90 90 90 90 90
+     */
+    {
+        unsigned char *p;
+        p = (unsigned char *)0x0060CDE2;
+        if (VirtualProtect(p, 2, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            p[0] = 0x90; p[1] = 0x90;
+            VirtualProtect(p, 2, oldProtect, &oldProtect);
+            log_str("  NOPed light broad-visibility skip (0x60CDE2)\r\n");
+        }
+        p = (unsigned char *)0x0060CE20;
+        if (VirtualProtect(p, 6, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            p[0] = 0x90; p[1] = 0x90; p[2] = 0x90;
+            p[3] = 0x90; p[4] = 0x90; p[5] = 0x90;
+            VirtualProtect(p, 6, oldProtect, &oldProtect);
+            log_str("  NOPed light frustum plane test jump (0x60CE20)\r\n");
+        }
+    }
+
+    /* Force all light sub-elements visible in LightVolume_UpdateVisibility (0x6124E0).
+     * This function writes intensity/vis data into render command buffer slots.
+     * Each slot has a visibility state check: cmp visState, 1; jg skip_slot.
+     * Values > 1 mean "frustum-culled" — NOP these checks so all sub-elements
+     * write their render data regardless of the upstream frustum test result.
+     * The loop is 4x unrolled + a remainder, giving 5 patch sites (9 bytes each:
+     * 3-byte CMP + 6-byte conditional near jump). */
+    {
+        static const unsigned int visCheckAddrs[] = {
+            0x006125EC,  /* unrolled slot 1: cmp edx,1; jg +0x2D */
+            0x0061264C,  /* unrolled slot 2: cmp edx,1; jg +0x24 */
+            0x006126AA,  /* unrolled slot 3: cmp ebx,1; jg +0x24 */
+            0x00612701,  /* unrolled slot 4: cmp edx,1; jg +0x24 */
+            0x0061279A,  /* remainder:       cmp esi,1; jg +0x24 */
+        };
+        int visNopCount = 0;
+        int i;
+        for (i = 0; i < 5; i++) {
+            unsigned char *p = (unsigned char *)visCheckAddrs[i];
+            if (VirtualProtect(p, 9, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+                p[0] = 0x90; p[1] = 0x90; p[2] = 0x90;
+                p[3] = 0x90; p[4] = 0x90; p[5] = 0x90;
+                p[6] = 0x90; p[7] = 0x90; p[8] = 0x90;
+                VirtualProtect(p, 9, oldProtect, &oldProtect);
+                visNopCount++;
+            }
+        }
+        log_str("  NOPed light visibility-state checks: ");
+        log_int("", visNopCount);
+        log_str("/5\r\n");
+    }
+
     /* Cull override is handled by WD_SetRenderState forcing D3DCULL_NONE. */
 }
 
