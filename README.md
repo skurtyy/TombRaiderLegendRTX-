@@ -4,6 +4,22 @@
 
 ---
 
+## Quick Navigation
+
+| What you need | Where to look |
+|---------------|---------------|
+| Project status + culling layer map | [TRL tests/WHITEBOARD.md](TRL%20tests/WHITEBOARD.md) |
+| Build-by-build results (44 builds) | [TRL tests/TEST_STATUS.md](TRL%20tests/TEST_STATUS.md) |
+| Test build archive | [TRL tests/](TRL%20tests/) |
+| Proxy DLL source | [proxy/](proxy/) |
+| Technical documentation | [docs/](docs/) |
+| Static analysis tools | [retools/](retools/) |
+| Live analysis tools (Frida) | [livetools/](livetools/) |
+| Test automation | [automation/](automation/) |
+| D3D9 frame tracer | [graphics/directx/dx9/tracer/](graphics/directx/dx9/tracer/) |
+
+---
+
 ## The Problem & Solution
 
 TRL renders exclusively via vertex shaders. RTX Remix requires the D3D9 Fixed-Function Pipeline (FFP) to identify geometry, assign asset hashes, and inject path-traced lighting — shader-based draws produce unstable hashes and wrong material assignments because Remix cannot decode shader constant semantics.
