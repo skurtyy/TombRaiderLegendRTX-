@@ -1,72 +1,88 @@
 ---
-description: Subagent delegation rules — when to spawn static-analyzer vs run livetools directly, parallel work patterns, examples
+description: Subagent delegation rules — when to spawn static-analyzer vs run livetools directly, parallel work patterns
 ---
 
 # Subagent Workflow
 
-The main agent orchestrates and focuses on **live tools**, **dx9tracer capture**, **user interaction**, and **synthesis**. Heavy static analysis and web research are delegated to subagents so the user isn't blocked.
+Main agent: **live tools**, **dx9tracer capture**, **user interaction**, **synthesis**. Heavy static analysis and web research → subagents.
+
+## Pre-flight: Ensure Ghidra Backend
+
+Before first pyghidra use, run `python verify_install.py` — if pyghidra shows WARN, run `python verify_install.py --setup` (one-time ~600MB download).
 
 ## Bootstrap First — New Binaries
 
 When analyzing a binary for the first time (no existing or sparsely populated `patches/<project>/kb.h`), **always bootstrap before other static analysis**:
 
-1. The `static-analyzer` subagent auto-pulls `signatures.db` if missing (pre-flight check). Spawn it to run `bootstrap.py <binary> --project <Name>` — this seeds `patches/<project>/kb.h` with RTTI classes, CRT/library function IDs, compiler info, and propagated labels. **Bootstrap takes 2-5 minutes.** Tell the user it's running and do other work while it completes. The output goes to `patches/<project>/kb.h` — verify this file exists and has content after bootstrap returns. **Bootstrap speeds up all subsequent decompilation**: when `--types kb.h` is passed to the decompiler, it pre-analyzes every known function (`af` per KB entry) so cross-references resolve to named functions, callees get inlined signatures, and you avoid the expensive full-binary `aaa` analysis pass.
-2. Any other static analysis subagents should run in parallel, but their decompilation output will be richer if bootstrap finishes first
-3. After bootstrap, all subsequent `decompiler.py` calls **must** use `--types patches/<project>/kb.h`
+1. Spawn `static-analyzer`: `bootstrap.py <binary> --project <Name>` — seeds kb.h with RTTI, CRT/library IDs, compiler info, propagated labels. **2-5 minutes.** After bootstrap, ALL `decompiler.py` calls must use `--types patches/<project>/kb.h`.
+2. **In parallel**, spawn second `static-analyzer`: `pyghidra_backend.py analyze <binary> --project patches/<Name>` — full Ghidra analysis, reusable project. **5-15 minutes.** After this, use `--project patches/<project>` so `--backend auto` prefers Ghidra.
+3. Other static analysis can run in parallel but output is richer after bootstrap.
 
-**How to detect "needs bootstrap":** Check if `patches/<project>/kb.h` exists AND has real content (function signatures `@`, globals `$`, or struct definitions beyond section headers). An empty or stub KB with only comment headers counts as sparse — bootstrap it. Quick check: `grep -cE '^[@$]|^struct |^enum ' patches/<project>/kb.h` — if the count is under 50, bootstrap.
+**Detect "needs bootstrap":** `grep -cE '^[@$]|^struct |^enum ' patches/<project>/kb.h` — count under 50 = bootstrap.
+**Detect "needs pyghidra analyze":** Check if `patches/<project>/ghidra/<binary_stem>.gpr` exists.
 
-## Delegation Rules
+## Delegation Beyond CLAUDE.md
 
-| Task | Where |
-|------|-------|
-| Static analysis (`retools`: decompiler, disasm, xrefs, search, structrefs, callgraph, rtti, datarefs, dumpinfo, throwmap) | `static-analyzer` subagent |
-| Web research (docs, API refs, format specs, SDK docs) | `web-researcher` subagent |
-| Live tools (`livetools`: attach, trace, bp, memwatch, dipcnt, mem read/write) | Main agent — directly |
-| dx9tracer trigger/capture | Main agent — directly |
-| dx9tracer analyze (offline JSONL analysis) | `static-analyzer` subagent |
-| Bootstrap new binary (`bootstrap.py`) | `static-analyzer` subagent -- takes 2-5 min |
-| Bulk signature scan (`sigdb.py scan`) | `static-analyzer` subagent -- takes 1-3 min |
-| Signature DB build (`sigdb.py build`) | `static-analyzer` subagent -- takes 1-5 min |
-| Single function ID (`sigdb.py identify`, `fingerprint`) | Main agent -- fast (<5s) |
-| Context assembly (`context.py assemble`) | Main agent -- fast (<5s) |
-| Decompiler postprocess (`context.py postprocess`) | Main agent -- instant |
-| File editing, patch specs, builds | Main agent — directly |
-| KB updates from subagent findings | `static-analyzer` writes to `kb.h`; main agent may refine |
+CLAUDE.md lists allowlisted fast commands (run directly) and the general delegation rule. Additional non-obvious delegation:
 
-## Subagent Output Files
+| Task | Where | Notes |
+|------|-------|-------|
+| Web research (docs, API refs, specs) | `web-researcher` subagent | |
+| dx9tracer offline analysis | `static-analyzer` subagent | |
+| Subsequent Ghidra decompile | `static-analyzer` subagent | Fast: JVM ~3s + decompile <1s |
+| sigdb scan / build | `static-analyzer` subagent | scan 1-3 min, build 1-5 min |
+| Dataflow: constants + backward slice (`dataflow.py`) | Main agent | fast (<5s) |
+| KB updates from findings | `static-analyzer` writes kb.h | main agent may refine |
 
-Subagents write detailed findings to `patches/<project>/findings.md` (appended, not overwritten). When a subagent returns, it states the file path — **read the file** for full details including decompilation output, address tables, and suggested livetools commands. The return message is just a summary.
+## Subagent Output
+
+Subagents write to `patches/<project>/findings.md` (appended). When a subagent returns, **read the file** for full details — the return message is just a summary.
 
 ## Parallel Work
 
-When both static and dynamic analysis are needed:
-1. Spawn `static-analyzer` **in background** for the static questions
-2. **Immediately ask the user** if the game/process is running or ask them to launch it — don't wait for static results
-3. While the subagent works, prepare livetools (attach, set up traces) or discuss the approach with the user
-4. Synthesize findings when the subagent returns
+1. Spawn `static-analyzer` **in background** for static questions
+2. **Immediately** ask user to launch the game — don't wait for static results
+3. While subagent works, prepare livetools or discuss approach
+4. Synthesize when subagent returns
 
-Multiple `static-analyzer` instances can run in parallel for independent questions (e.g., decompiling two unrelated functions, analyzing different modules). When a subagent returns findings with multiple leads (e.g., "5 candidate functions found"), spawn parallel subagents to chase independent leads simultaneously — don't serialize them or try to analyze them yourself.
+Multiple `static-analyzer` instances can run in parallel for independent questions. When results have multiple leads, spawn parallel subagents — don't serialize.
 
-## Main Agent Responsibilities During Analysis
+## Dual-Backend Deep Analysis
 
-**Do not silently wait for subagents.** While static analysis runs:
-- Ask the user to launch the game/process if live verification or patching will be needed
-- Discuss the approach, explain what the subagent is looking for
-- Prepare livetools commands based on what you already know
-- If the task involves runtime patching (disabling culling, skipping checks, etc.), assume live tools WILL be needed and prompt the user early
+For complex exploratory tasks (finding subsystems, mapping pipelines), spawn **two parallel agents**:
+
+1. **r2ghidra**: `--backend pdg --types kb.h` → writes `findings_r2.md`
+2. **pyghidra**: `pyghidra_backend.py decompile` → writes `findings.md`
+
+r2ghidra: better `__thiscall` recovery, low-level D3D. pyghidra: better library call resolution, type propagation. Merge both for complete picture. Not needed for single-function decompilation — use `--backend auto`.
+
+## Main Agent During Analysis
+
+**Do not silently wait.** While static analysis runs:
+- Ask user to launch game if live verification/patching needed
+- Prepare livetools commands from what you already know
+- Discuss the approach
 
 ## Examples
 
+**"Analyze game.exe for the first time"**
+1. Background: `bootstrap.py game.exe --project MyGame`
+2. Background: `pyghidra_backend.py analyze game.exe --project patches/MyGame`
+3. Tell user, run `sigdb.py fingerprint` inline while waiting
+4. When both return, all subsequent decompilations use `--types kb.h --project patches/MyGame`
+
 **"Disable culling in game.exe"**
-1. Spawn `static-analyzer` in background: find `SetRenderState` calls with `D3DRS_CULLMODE`, string search for "cull", xrefs to render state functions
-2. Immediately tell the user: "Please launch the game — I'll need to attach with livetools to patch culling at runtime once I find the addresses"
-3. When static results return, use `livetools` to verify and patch: `mem write` to NOP the cull-enable instruction or force `D3DRS_CULLMODE` to `D3DCULL_NONE`
+1. Spawn `static-analyzer` #1 (r2ghidra): find `SetRenderState` calls with `D3DRS_CULLMODE`, string search for "cull", xrefs --indirect to find vtable call sites. Uses `--backend pdg --types kb.h`. Writes to `findings_r2.md`.
+2. Spawn `static-analyzer` #2 (pyghidra): same search strategy but decompile with `pyghidra_backend.py decompile`. Writes to `findings.md`.
+3. Immediately tell the user: "Please launch the game — I'll need to attach with livetools to patch culling at runtime once I find the addresses"
+4. While waiting, run `dataflow.py --constants` on any known render functions to see what cull mode constants flow in (e.g., `eax = 0x2` = D3DCULL_CW)
+5. When both return, merge findings and use `livetools` to verify and patch: `mem write` to NOP the cull-enable instruction or force `D3DRS_CULLMODE` to `D3DCULL_NONE`
 
 **"What does function 0x401000 do?"**
-1. Spawn `static-analyzer`: decompile with `--types kb.h`, get callgraph, xrefs
-2. Tell the user: "Static analysis is running. Want me to also trace this function live to see actual register values and call frequency?"
-3. If yes, attach with `livetools trace 0x401000 --count 20 --read`
+1. Spawn `static-analyzer`: decompile with `--types kb.h`, get callgraph --indirect, xrefs
+2. Run `dataflow.py 0x401000 --constants` inline — see what constants flow through
+3. Tell the user: "Static analysis is running. Want me to also trace this function live to see actual register values and call frequency?"
+4. If yes, attach with `livetools trace 0x401000 --count 20 --read`
 
 **"Find who writes to address 0x7A0000"**
 1. Spawn `static-analyzer`: `datarefs.py` for static references
@@ -77,25 +93,8 @@ Multiple `static-analyzer` instances can run in parallel for independent questio
 1. Spawn `static-analyzer`: `dumpinfo.py diagnose`, `throwmap.py match`
 2. Tell the user: "Analyzing the crash dump. If you can reproduce the crash, launch the game and I'll attach to catch it live"
 
-**"Analyze game.exe for the first time"**
-1. Spawn `static-analyzer` in background: `bootstrap.py game.exe --project MyGame`
-2. Tell the user: "Bootstrapping the binary -- this will auto-identify RTTI classes, CRT functions, and propagated labels. Takes ~3 minutes."
-3. While bootstrap runs, use `sigdb.py fingerprint` (fast) to tell the user the compiler version
-4. When bootstrap returns, read the report and summarize coverage to the user
-5. All subsequent decompilations use `--types patches/MyGame/kb.h` with the seeded KB
-
 ## Anti-Patterns
 
-**The Cascade Trap.** The main agent runs "one quick xref" -> sees an interesting caller -> decompiles it -> follows another xref -> now it's doing a full static analysis session while the user waits. If you catch yourself about to run a second retools command, stop and delegate everything to a subagent.
-
-**Duplicating subagent work.** After spawning a static-analyzer, don't also grep/search for the same thing yourself. Trust the subagent. Use the wait time for livetools or user interaction.
-
-**Silent waiting.** Spawning a subagent and then producing no output until it returns. Always talk to the user or do livetools work while subagents run.
-
-## When NOT to Delegate
-
-- Allowlisted fast commands (see CLAUDE.md Delegation Rule): `sigdb identify`, `sigdb fingerprint`, `context assemble`, `context postprocess`, `readmem.py`, `asi_patcher.py build`
-- Anything requiring a live attached process — always main agent
-- Iterative debugging loops where each step depends on the last live result — main agent
-
-Everything else in `retools.*` goes to a `static-analyzer` subagent. No exceptions.
+- **Cascade Trap**: Running "one quick xref" then chasing callers until you're doing full static analysis while user waits. Second retools command = should have delegated.
+- **Duplicating subagent work**: Don't grep for the same thing you delegated. Trust the subagent.
+- **Silent waiting**: Always talk to user or do livetools while subagents run.

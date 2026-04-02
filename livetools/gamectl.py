@@ -50,7 +50,6 @@ from pathlib import Path
 INPUT_KEYBOARD       = 1
 INPUT_MOUSE          = 0
 KEYEVENTF_KEYUP      = 0x0002
-KEYEVENTF_SCANCODE   = 0x0008
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP   = 0x0004
 SW_RESTORE           = 9
@@ -79,9 +78,6 @@ VK_MAP: dict[str, int] = {
     "NUMPAD0": 0x60, "NUMPAD1": 0x61, "NUMPAD2": 0x62, "NUMPAD3": 0x63,
     "NUMPAD4": 0x64, "NUMPAD5": 0x65, "NUMPAD6": 0x66, "NUMPAD7": 0x67,
     "NUMPAD8": 0x68, "NUMPAD9": 0x69,
-    "]": 0xDD, "[": 0xDB,  # OEM bracket keys (NVIDIA overlay screenshot = ])
-    ";": 0xBA, "'": 0xDE, ",": 0xBC, ".": 0xBE, "/": 0xBF,
-    "-": 0xBD, "=": 0xBB, "\\": 0xDC, "`": 0xC0,
 }
 
 # ── SendInput structures ───────────────────────────────────────────────────
@@ -263,10 +259,7 @@ def _make_key_input(vk: int, up: bool = False) -> INPUT:
     inp.type = INPUT_KEYBOARD
     inp.union.ki.wVk   = vk
     inp.union.ki.wScan = user32.MapVirtualKeyW(vk, 0)
-    flags = KEYEVENTF_SCANCODE
-    if up:
-        flags |= KEYEVENTF_KEYUP
-    inp.union.ki.dwFlags = flags
+    inp.union.ki.dwFlags = KEYEVENTF_KEYUP if up else 0
     inp.union.ki.time = 0
     inp.union.ki.dwExtraInfo = None
     return inp
@@ -323,7 +316,6 @@ def send_keys(hwnd: int, sequence: str, delay_ms: int = 200) -> dict:
             time.sleep(ms / 1000.0)
             actions.append({"action": "wait", "ms": ms})
         elif upper.startswith("HOLD:"):
-            focus_hwnd(hwnd)
             parts = token.split(":")
             key = parts[1]
             ms  = int(parts[2]) if len(parts) > 2 else 500

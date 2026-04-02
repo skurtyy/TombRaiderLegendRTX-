@@ -148,6 +148,23 @@ class TestPostprocess:
         assert "Init" in result
         assert "param_1->speed" in result
 
+    def test_renames_ghidra_FUN_prefix(self):
+        from context import postprocess
+        raw = "call FUN_00401000\nmov eax, FUN_00402000\n"
+        kb = {0x00401000: "ProcessInput", 0x00402000: "GetValue"}
+        result = postprocess(raw, kb)
+        assert "ProcessInput" in result
+        assert "GetValue" in result
+        assert "FUN_00401000" not in result
+
+    def test_renames_ghidra_FUN_16digit(self):
+        from context import postprocess
+        raw = "call FUN_0000000140001000\n"
+        kb = {0x0000000140001000: "WideFunc"}
+        result = postprocess(raw, kb)
+        assert "WideFunc" in result
+        assert "FUN_0000000140001000" not in result
+
 
 # ---------------------------------------------------------------------------
 # assemble
@@ -239,7 +256,67 @@ class TestAssembleSingleDisasm:
         with patch("context.find_start", return_value=0x401000), \
              patch("context.analyze", return_value=([], [], 0x401100)), \
              patch("context.aggregate_struct", return_value=[]), \
-             patch("context.find_strings", return_value=fake_strings):
+             patch("context.find_strings", return_value=fake_strings), \
+             patch("context.propagate_cfg", return_value={}):
             assemble(mock_binary, 0x401000, str(tmp_path))
 
         assert mock_binary.disasm.call_count <= 1
+
+
+class TestAssembleDataflow:
+    def test_dataflow_section_present(self, tmp_path):
+        """assemble() should include [dataflow] section by default."""
+        from context import assemble
+        from dataflow import Const
+
+        b = MagicMock()
+        b.is_64 = False
+        b.base = 0x400000
+        b.find_func_start.return_value = 0x401500
+        b.disasm.return_value = []
+        b.read_va.return_value = b"\x90" * 64
+        b.exec_ranges.return_value = [(0x401000, 0x1000, 0x1000)]
+        b.abs_mem_refs.return_value = []
+        b.abs_imm_refs.return_value = []
+        b.in_exec.return_value = True
+        b.ptr_size = 4
+
+        proj = tmp_path / "proj"
+        proj.mkdir()
+
+        mock_states = {0x401500: {"eax": Const(5), "ecx": Const(3)}}
+        with patch("context.find_start", return_value=0x401500), \
+             patch("context.analyze", return_value=([], [], 0x401600)), \
+             patch("context.aggregate_struct", return_value=[]), \
+             patch("context.find_strings", return_value=[]), \
+             patch("context.propagate_cfg", return_value=mock_states):
+            result = assemble(b, 0x401500, str(proj))
+
+        assert "[dataflow]" in result
+        assert "eax = 0x5" in result
+
+    def test_no_dataflow_flag(self, tmp_path):
+        """assemble() with no_dataflow=True should skip [dataflow] section."""
+        from context import assemble
+
+        b = MagicMock()
+        b.is_64 = False
+        b.base = 0x400000
+        b.find_func_start.return_value = 0x401500
+        b.disasm.return_value = []
+        b.read_va.return_value = b"\x90" * 64
+        b.exec_ranges.return_value = [(0x401000, 0x1000, 0x1000)]
+        b.abs_mem_refs.return_value = []
+        b.abs_imm_refs.return_value = []
+        b.ptr_size = 4
+
+        proj = tmp_path / "proj"
+        proj.mkdir()
+
+        with patch("context.find_start", return_value=0x401500), \
+             patch("context.analyze", return_value=([], [], 0x401600)), \
+             patch("context.aggregate_struct", return_value=[]), \
+             patch("context.find_strings", return_value=[]):
+            result = assemble(b, 0x401500, str(proj), no_dataflow=True)
+
+        assert "[dataflow]" not in result
