@@ -2,16 +2,19 @@
 
 > **Goal:** Make Tomb Raider Legend (2006, PC) render correctly under NVIDIA RTX Remix for full path-traced lighting with stable per-mesh material assignments.
 
+**Current status:** Failing — anchor geometry disappears at distance. 44 builds completed, 22 culling layers mapped and patched. `TerrainDrawable (0x40ACF0)` is the unexplored prime suspect.
+
 ---
 
 ## Quick Navigation
 
 | What you need | Where to look |
 |---------------|---------------|
-| Project status + culling layer map | [TRL tests/WHITEBOARD.md](TRL%20tests/WHITEBOARD.md) |
+| Live project status + culling layer map | [TRL tests/WHITEBOARD.md](TRL%20tests/WHITEBOARD.md) |
 | Build-by-build results (44 builds) | [TRL tests/TEST_STATUS.md](TRL%20tests/TEST_STATUS.md) |
 | Test build archive | [TRL tests/](TRL%20tests/) |
 | Proxy DLL source | [proxy/](proxy/) |
+| Full technical build document | [docs/TECHNICAL_BUILD_DOCUMENT.md](docs/TECHNICAL_BUILD_DOCUMENT.md) |
 | Technical documentation | [docs/](docs/) |
 | Static analysis tools | [retools/](retools/) |
 | Live analysis tools (Frida) | [livetools/](livetools/) |

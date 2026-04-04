@@ -32,7 +32,7 @@ Latest build: `build-044` — all three render paths patched; terrain path remai
 
 ### Pre-Archive — Early Development Session (2026-03-24)
 
-> Exploratory captures before the formal build numbering was established. See [`session-early-dev/`](session-early-dev/).
+> Exploratory captures before the formal build numbering was established. See [`session-000-early-dev/`](session-000-early-dev/).
 
 ---
 
