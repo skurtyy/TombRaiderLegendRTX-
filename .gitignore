@@ -15,8 +15,18 @@ venv/
 *.pdb
 *.ilk
 
-# Generated patch output (asi_patcher)
-patches/
+# Patch workspace artifacts (keep project source files, ignore bulk data)
+patches/*/backups/
+patches/*/captures/
+patches/*/traces/
+patches/*/screenshots/
+patches/*/__pycache__/
+patches/*/proxy/*.dll
+patches/*/proxy/*.pdb
+patches/*/ffp_proxy.log
+patches/*/remix-comp/build/
+patches/*/remix-comp/deps/
+patches/*/remix-comp/*.pdb
 
 # D3D9 tracer runtime artifacts
 dxtrace_capture.trigger
@@ -64,3 +74,22 @@ compass_artifact_*
 
 # Superpowers specs/plans (session artifacts)
 docs/
+
+# Game directory (23GB game assets — not source)
+/Tomb Raider Legend/
+
+# Nested repo clones (not submodules)
+/TombRaiderLegendRTX-/
+/TRLAU-menu-hook/
+/TombRaiderLegend/
+
+# Tool archives (downloaded, not source)
+tools/apitrace-*.7z
+tools/radare2.zip
+tools/radare2-5*/
+tools/apitrace-*/
+
+# Chat logs (personal, not project docs)
+chatgpt1.md
+geminibuild1.txt
+trlbigopus.md

@@ -66,10 +66,18 @@ When the user says **"begin testing manually"**, **"manual test"**, **"test manu
 | Aspect | Automated (`begin testing`) | Manual (`begin testing manually`) |
 |--------|----------------------------|-----------------------------------|
 | Keypresses/macro | Yes — full macro replay | **None** — user controls the game |
-| Screenshots | Captured automatically | **None** — user reports visually |
-| Livetools | Not attached during test | **Attached after 40s** for live inspection |
-| Result determination | Screenshot analysis | **User's verbal report** |
-| Phases | Two phases (hash debug + clean) | **Single session** — user switches views |
+| Screenshots | Captured automatically (key: `]`) | **None** — user reports visually |
+| Livetools | Attached in Phase 3 (live analysis) | **Attached after 40s** for live inspection |
+| Result determination | Screenshot + live analysis | **User's verbal report** |
+| Phases | Three phases (hash debug + clean + live analysis) | **Single session** — user switches views |
+
+## Setup Dialog Configuration
+
+The setup dialog auto-configures when it appears:
+- **Dev options enabled**: "Dont Defer Shader Creation"
+- **Dev options disabled**: "Disable Pure Device" (proxy already strips PUREDEVICE; game breaks without it)
+- **Dev options disabled**: All others
+- **Graphics effects**: All OFF for cleanest Remix compatibility
 
 ## No Questions
 

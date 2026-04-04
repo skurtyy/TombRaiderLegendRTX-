@@ -50,6 +50,7 @@ from pathlib import Path
 INPUT_KEYBOARD       = 1
 INPUT_MOUSE          = 0
 KEYEVENTF_KEYUP      = 0x0002
+MOUSEEVENTF_MOVE     = 0x0001
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP   = 0x0004
 SW_RESTORE           = 9
@@ -329,6 +330,26 @@ def send_keys(hwnd: int, sequence: str, delay_ms: int = 200) -> dict:
     return {"ok": True, "focused": focused, "count": len(actions), "actions": actions}
 
 # ── Mouse input ────────────────────────────────────────────────────────────
+
+def move_mouse_relative(dx: int, dy: int) -> dict:
+    """Move the mouse by a relative offset via SendInput.
+
+    Args:
+        dx: Horizontal pixels (positive = right).
+        dy: Vertical pixels (positive = down).
+
+    Returns:
+        dict with ok, dx, dy
+    """
+    mi = INPUT()
+    mi.type = INPUT_MOUSE
+    mi.union.mi.dx = dx
+    mi.union.mi.dy = dy
+    mi.union.mi.dwFlags = MOUSEEVENTF_MOVE
+    arr = (INPUT * 1)(mi)
+    user32.SendInput(1, arr, ctypes.sizeof(INPUT))
+    return {"ok": True, "dx": dx, "dy": dy}
+
 
 def click_at(hwnd: int, x: int, y: int) -> dict:
     """Focus hwnd then left-click at client-area coordinates via SendInput.

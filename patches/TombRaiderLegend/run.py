@@ -105,12 +105,14 @@ def set_graphics_config():
             "EnableWaterFX": 0,
             "EnableReflection": 0,
             "UseShader20": 0,
-            "UseShader30": 1,
+            "UseShader30": 0,
             "BestTextureFilter": 2,
             "DisableHardwareVP": 0,
             "Disable32BitTextures": 0,
             "ExtendedDialog": 1,
             "AdapterID": 0,
+            "DisablePureDevice": 0,         # Proxy already strips PUREDEVICE flag
+            "DontDeferShaderCreation": 1,    # All shaders created at startup
         }
         for name, val in settings.items():
             winreg.SetValueEx(key, name, 0, winreg.REG_DWORD, val)
@@ -309,19 +311,19 @@ def dismiss_setup_dialog():
     ensure_unchecked("Use 3.0 Shader Features")
     ensure_unchecked("LowRes Depth of Field")
 
-    # DevTech: keep all unchecked (they should be by default)
+    # DevTech options for RTX Remix compatibility
     ensure_unchecked("Disable Hardware Vertexshaders")
     ensure_unchecked("Disable Hardware DXTC")
     ensure_unchecked("Disable Non Pow2 Support")
     ensure_unchecked("Use D3D Reference Device")
     ensure_unchecked("No Dynamic Textures")
-    ensure_unchecked("Disable Pure Device")
+    ensure_unchecked("Disable Pure Device")      # Proxy already strips PUREDEVICE flag
     ensure_unchecked("D3D FPU Preserve")
     ensure_unchecked("Disable 32bit Textures")
     ensure_unchecked("Disable Driver Management")
     ensure_unchecked("Disable Hardware Shadow Maps")
     ensure_unchecked("Disable Null Render Targets")
-    ensure_unchecked("Dont Defer Shader Creation")
+    ensure_checked("Dont Defer Shader Creation") # All shaders created at startup for Remix
 
     time.sleep(0.5)
 
@@ -416,9 +418,14 @@ def build_proxy():
     # Deploy
     dll_src = PROXY_DIR / "d3d9.dll"
     ini_src = PROXY_DIR / "proxy.ini"
+    rtx_src = SCRIPT_DIR / "rtx.conf"
     shutil.copy2(str(dll_src), str(GAME_DIR / "d3d9.dll"))
     shutil.copy2(str(ini_src), str(GAME_DIR / "proxy.ini"))
-    print(f"Deployed d3d9.dll + proxy.ini to {GAME_DIR.name}/")
+    if rtx_src.exists():
+        shutil.copy2(str(rtx_src), str(GAME_DIR / "rtx.conf"))
+        print(f"Deployed d3d9.dll + proxy.ini + rtx.conf to {GAME_DIR.name}/")
+    else:
+        print(f"Deployed d3d9.dll + proxy.ini to {GAME_DIR.name}/ (no rtx.conf template)")
 
 
 def do_record():
@@ -471,6 +478,10 @@ def generate_random_movement():
     # Initial settle time after level loads
     tokens.append("WAIT:2500")
 
+    # Walk forward for 3 seconds to move into the scene
+    tokens.append("HOLD:W:3000")
+    tokens.append("WAIT:1000")
+
     # Take a baseline screenshot before any movement
     tokens.append("]")
     tokens.append("WAIT:1000")
@@ -489,6 +500,141 @@ def generate_random_movement():
     tokens.append("]")
 
     return " ".join(tokens)
+
+
+def do_live_analysis(hwnd, duration_s=60):
+    """Run a live analysis phase: attach livetools, move Lara around while
+    collecting render pipeline data, then save results.
+
+    Sends gentle A/D strafes with mouse look-around to exercise the renderer
+    from multiple angles while livetools captures function call data.
+
+    Args:
+        hwnd: Game window handle.
+        duration_s: Total duration in seconds.
+
+    Returns:
+        dict with capture file paths and summary.
+    """
+    from livetools.gamectl import send_key, move_mouse_relative, focus_hwnd
+
+    capture_dir = SCRIPT_DIR / "captures" / "live_analysis"
+    capture_dir.mkdir(parents=True, exist_ok=True)
+
+    # Attach livetools
+    print("\n=== Live Analysis Phase ===")
+    print("Attaching livetools...")
+    r = subprocess.run(
+        ["python", "-m", "livetools", "attach", "trl.exe"],
+        capture_output=True, text=True, cwd=str(REPO_ROOT)
+    )
+    if "Attached" not in r.stdout and "Attached" not in r.stderr:
+        print(f"WARNING: livetools attach may have failed: {r.stderr}")
+
+    # Start render pipeline collect in background
+    pipeline_file = str(capture_dir / "live_render_pipeline.jsonl")
+    light_file = str(capture_dir / "live_light_system.jsonl")
+
+    print(f"Starting {duration_s}s data collection...")
+    collect_render = subprocess.Popen(
+        ["python", "-m", "livetools", "collect",
+         "0x00413950", "0x0040E470", "0x00ECBB00",
+         "--duration", str(duration_s),
+         "--read", "ecx; eax; [esp+4]:4:hex; [esp+8]:4:hex",
+         "--fence", "0x00450DE0",
+         "--label", "0x00413950=SetWorldMatrix",
+         "--label", "0x0040E470=SetRenderStateCached",
+         "--label", "0x00ECBB00=UploadViewProjMatrices",
+         "--output", pipeline_file],
+        cwd=str(REPO_ROOT), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+
+    collect_lights = subprocess.Popen(
+        ["python", "-m", "livetools", "collect",
+         "0x0060C7D0", "0x006124E0", "0x0060B050", "0x0060E2D0",
+         "--duration", str(duration_s),
+         "--read", "ecx; eax; [esp+4]:4:hex",
+         "--label", "0x0060C7D0=RenderLights_FrustumCull",
+         "--label", "0x006124E0=LightVolume_Draw",
+         "--label", "0x0060B050=LightVisibilityCheck",
+         "--label", "0x0060E2D0=RenderLights_Caller",
+         "--output", light_file],
+        cwd=str(REPO_ROOT), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+
+    # Move Lara around while collecting data
+    print("Moving Lara with A/D strafes + mouse look-around...")
+    focus_hwnd(hwnd)
+    time.sleep(0.5)
+
+    move_interval = 3  # seconds per movement cycle
+    cycles = duration_s // move_interval
+    for i in range(cycles):
+        elapsed = i * move_interval
+        phase = i % 6
+
+        if phase == 0:
+            # Strafe left
+            send_key("A", hold_ms=random.randint(400, 1200))
+        elif phase == 1:
+            # Look right (mouse)
+            for _ in range(5):
+                move_mouse_relative(random.randint(30, 80), random.randint(-15, 15))
+                time.sleep(0.1)
+        elif phase == 2:
+            # Strafe right
+            send_key("D", hold_ms=random.randint(400, 1200))
+        elif phase == 3:
+            # Look left (mouse)
+            for _ in range(5):
+                move_mouse_relative(random.randint(-80, -30), random.randint(-15, 15))
+                time.sleep(0.1)
+        elif phase == 4:
+            # Look up/down
+            for _ in range(5):
+                move_mouse_relative(random.randint(-10, 10), random.randint(-60, 60))
+                time.sleep(0.1)
+        elif phase == 5:
+            # Take a screenshot at this position
+            send_key("]", hold_ms=50)
+
+        remaining = duration_s - elapsed
+        if remaining > 0 and remaining % 15 == 0:
+            print(f"  {remaining}s remaining...")
+
+        time.sleep(max(0, move_interval - 1.5))
+
+    # Wait for collections to finish
+    print("Waiting for data collection to complete...")
+    collect_render.wait(timeout=30)
+    collect_lights.wait(timeout=30)
+
+    # Detach
+    subprocess.run(
+        ["python", "-m", "livetools", "detach"],
+        capture_output=True, text=True, cwd=str(REPO_ROOT)
+    )
+
+    # Run quick analysis
+    print("\n=== Live Analysis Results ===")
+    results = {}
+    for name, fpath in [("render_pipeline", pipeline_file),
+                        ("light_system", light_file)]:
+        fsize = Path(fpath).stat().st_size if Path(fpath).exists() else 0
+        results[name] = {"file": fpath, "size": fsize}
+        if fsize > 0:
+            r = subprocess.run(
+                ["python", "-m", "livetools", "analyze", fpath, "--summary"],
+                capture_output=True, text=True, cwd=str(REPO_ROOT)
+            )
+            print(f"\n{name}:")
+            print(r.stdout)
+            results[name]["summary"] = r.stdout
+        else:
+            print(f"\n{name}: 0 bytes (no calls recorded)")
+            results[name]["summary"] = "No calls recorded"
+
+    return results
 
 
 def do_test(build_first=False, randomize=False):
@@ -622,11 +768,21 @@ def do_test(build_first=False, randomize=False):
     if result2["ok"]:
         print(f"Macro complete. {result2['steps_result']['count']} actions sent.")
     time.sleep(3)
-    kill_game()
-    print("Clean screenshot captured. Game closed.")
 
     print("\n=== Collecting clean screenshots ===")
     collect_screenshots()
+
+    # --- Phase 3: Live analysis (keep game running, attach livetools) ---
+    from livetools.gamectl import find_hwnd_by_exe
+    hwnd3 = find_hwnd_by_exe("trl.exe")
+    if hwnd3:
+        live_results = do_live_analysis(hwnd3, duration_s=60)
+    else:
+        print("WARNING: Game not running for live analysis phase")
+        live_results = None
+
+    kill_game()
+    print("Game closed.")
 
     print("\n=== Test complete ===")
     return not crashed
