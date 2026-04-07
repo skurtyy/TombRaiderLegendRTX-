@@ -297,7 +297,9 @@ typedef struct {
 #define D3DDECLTYPE_FLOAT4    3
 #define D3DDECLTYPE_UBYTE4    5
 #define D3DDECLTYPE_UBYTE4N   8
+#define D3DDECLTYPE_SHORT2    6
 #define D3DDECLTYPE_SHORT4    7
+#define D3DDECLTYPE_SHORT2N   9
 #define D3DDECLTYPE_SHORT4N   10
 #define D3DDECLTYPE_UDEC3     13
 #define D3DDECLTYPE_DEC3N     14
@@ -310,6 +312,7 @@ typedef struct {
 #define D3DUSAGE_DYNAMIC      0x200
 #define D3DUSAGE_WRITEONLY    0x08
 #define D3DPOOL_DEFAULT       0
+#define D3DPOOL_MANAGED       1
 #define D3DLOCK_READONLY      0x10
 #define D3DLOCK_DISCARD       0x2000
 
@@ -541,6 +544,8 @@ typedef struct WrappedDevice {
     unsigned int drawsPassthrough;  /* viewProjValid=0 or POSITIONT */
     unsigned int drawsTotal;        /* all DIP+DP calls this frame */
     unsigned int transformsBlocked; /* external SetTransform V/P/W blocked */
+    unsigned int drawsS4;           /* SHORT4 draws (VS nulled, FFP) */
+    unsigned int drawsF3;           /* FLOAT3/other draws (VS active) */
     unsigned int frameSummaryCount; /* how many frame summaries logged */
 
     /* Stripped-normal declaration cache: maps original decl → decl with NORMAL removed.
@@ -564,14 +569,16 @@ typedef struct WrappedDevice {
     int s4Stride[64];             /* expanded stride per cached decl */
     int s4DeclCount;
 
-    /* Expanded VB cache: keyed by (srcVB, srcOff, bvi, nv).
-     * Static geometry VBs don't change, so expand once and reuse. */
+    /* Expanded VB cache: keyed by (srcVB, srcOff, bvi, nv, fingerprint).
+     * Fingerprint = XOR of first 32 bytes of source VB region to detect
+     * dynamic VBs where the game reuses the pointer with new content. */
 #define S4_VB_CACHE_SIZE 512
     struct {
         void *srcVB;            /* source VB pointer (lookup key) */
         unsigned int srcOff;    /* stream offset */
         int bvi;                /* base vertex index */
         unsigned int nv;        /* vertex count */
+        unsigned int fingerprint; /* XOR of first 32 bytes for staleness check */
         void *expVB;            /* expanded VB (owned, must release) */
         unsigned int expStride; /* expanded stride */
     } s4VBCache[S4_VB_CACHE_SIZE];
@@ -1028,32 +1035,58 @@ static void *S4_GetExpandedDecl(WrappedDevice *self, void *origDecl,
         }
     }
 
-    sizeDelta = 12 - 8; /* FLOAT3 - SHORT4 = +4 bytes */
+    sizeDelta = 0;
 
+    /* First pass: compute total size delta from all expansions */
     for (i = 0; (unsigned int)i < numElems; i++) {
         unsigned char *el = &elemBuf[i * 8];
         unsigned short stream = *(unsigned short*)&el[0];
-        unsigned short offset = *(unsigned short*)&el[2];
         unsigned char  type   = el[4];
         unsigned char  usage  = el[6];
-        unsigned char  uIdx   = el[7];
+        if (stream == 0xFF || stream == 0xFFFF) break;
+        if (stream != 0) continue;
+        if (usage == D3DDECLUSAGE_POSITION && type == D3DDECLTYPE_SHORT4)
+            sizeDelta += 12 - 8;   /* SHORT4(8) → FLOAT3(12) = +4 */
+        else if (usage == D3DDECLUSAGE_TEXCOORD && type == D3DDECLTYPE_SHORT2)
+            sizeDelta += 8 - 4;    /* SHORT2(4) → FLOAT2(8) = +4 */
+    }
 
-        if (stream == 0xFF || stream == 0xFFFF) {
+    /* Second pass: build expanded declaration with running offset adjustment */
+    {
+        int runDelta = 0;
+        for (i = 0; (unsigned int)i < numElems; i++) {
+            unsigned char *el = &elemBuf[i * 8];
+            unsigned short stream = *(unsigned short*)&el[0];
+            unsigned short offset = *(unsigned short*)&el[2];
+            unsigned char  type   = el[4];
+            unsigned char  usage  = el[6];
+            unsigned char  uIdx   = el[7];
+
+            if (stream == 0xFF || stream == 0xFFFF) {
+                memcpy(&expanded[outIdx * 8], el, 8);
+                outIdx++;
+                break;
+            }
+
             memcpy(&expanded[outIdx * 8], el, 8);
+
+            /* Apply running offset adjustment */
+            if (stream == 0)
+                *(unsigned short*)&expanded[outIdx * 8 + 2] = offset + runDelta;
+
+            if (usage == D3DDECLUSAGE_POSITION && stream == 0 && uIdx == 0
+                && type == D3DDECLTYPE_SHORT4) {
+                /* SHORT4 → FLOAT3 */
+                expanded[outIdx * 8 + 4] = (unsigned char)D3DDECLTYPE_FLOAT3;
+                runDelta += 12 - 8;
+            } else if (usage == D3DDECLUSAGE_TEXCOORD && stream == 0
+                       && type == D3DDECLTYPE_SHORT2) {
+                /* SHORT2 → FLOAT2 */
+                expanded[outIdx * 8 + 4] = (unsigned char)D3DDECLTYPE_FLOAT2;
+                runDelta += 8 - 4;
+            }
             outIdx++;
-            break;
         }
-
-        memcpy(&expanded[outIdx * 8], el, 8);
-
-        if (usage == D3DDECLUSAGE_POSITION && stream == 0 && uIdx == 0) {
-            /* Change SHORT4 → FLOAT3 */
-            expanded[outIdx * 8 + 4] = (unsigned char)D3DDECLTYPE_FLOAT3;
-        } else if (stream == 0 && offset > (unsigned short)posOff) {
-            /* Shift offset by sizeDelta for elements after position */
-            *(unsigned short*)&expanded[outIdx * 8 + 2] = offset + sizeDelta;
-        }
-        outIdx++;
     }
 
     /* Compute expanded stride */
@@ -1089,18 +1122,33 @@ static void *S4_GetExpandedDecl(WrappedDevice *self, void *origDecl,
     return NULL;
 }
 
+/* Release all cached expanded VBs. Called every frame to prevent stale data
+ * from dynamic VBs where the game reuses the same VB pointer with new content. */
+static void S4_FlushVBCache(WrappedDevice *self) {
+    typedef unsigned long (__stdcall *FN_Rel)(void*);
+    int i;
+    for (i = 0; i < self->s4VBCacheCount; i++) {
+        if (self->s4VBCache[i].expVB)
+            ((FN_Rel)(*(void***)self->s4VBCache[i].expVB)[2])(self->s4VBCache[i].expVB);
+        self->s4VBCache[i].expVB = NULL;
+        self->s4VBCache[i].srcVB = NULL;
+    }
+    self->s4VBCacheCount = 0;
+}
+
 /* Find or create a cached expanded VB for the given source VB region.
  * Returns the expanded VB pointer and stride, or NULL if cache miss and
  * expansion is needed. On cache miss, performs the expansion and caches it. */
 static void *S4_GetCachedExpVB(WrappedDevice *self,
     void *srcVB, unsigned int srcOff, unsigned int srcStride, int posOff,
-    int bvi, unsigned int nv, int expStride, unsigned int *outExpStride)
+    int bvi, unsigned int nv, int expStride, unsigned int *outExpStride,
+    void *origDecl)
 {
     typedef int (__stdcall *FN_CreateVB)(void*, unsigned int, unsigned int, unsigned int, unsigned int, void**, void*);
     typedef int (__stdcall *FN_VBLock)(void*, unsigned int, unsigned int, void**, unsigned int);
     typedef int (__stdcall *FN_VBUnlock)(void*);
     int i, slot;
-    unsigned int totalSrc, totalDst;
+    unsigned int totalSrc, totalDst, fp;
     void **srcVt;
     void **dstVt;
     unsigned char *srcData = NULL;
@@ -1108,30 +1156,49 @@ static void *S4_GetCachedExpVB(WrappedDevice *self,
     void *newVB = NULL;
     unsigned int v;
 
-    /* Check cache */
+    /* Compute content fingerprint: lock source, XOR first 32 bytes.
+     * Detects dynamic VBs where the game reuses the pointer for new content. */
+    srcVt = *(void***)srcVB;
+    {
+        unsigned char *fpData = NULL;
+        unsigned int fpSize = 32;
+        if (nv * srcStride < fpSize) fpSize = nv * srcStride;
+        if (((FN_VBLock)srcVt[11])(srcVB, srcOff + (unsigned int)bvi * srcStride,
+                fpSize, (void**)&fpData, D3DLOCK_READONLY) == 0 && fpData) {
+            unsigned int *w = (unsigned int*)fpData;
+            unsigned int n = fpSize / 4;
+            fp = 0;
+            for (i = 0; (unsigned int)i < n; i++) fp ^= w[i];
+            ((FN_VBUnlock)srcVt[12])(srcVB);
+        } else {
+            fp = 0; /* can't fingerprint — treat as always-miss */
+        }
+    }
+
+    /* Check cache (includes fingerprint for staleness detection) */
     for (i = 0; i < self->s4VBCacheCount; i++) {
         if (self->s4VBCache[i].srcVB == srcVB &&
             self->s4VBCache[i].srcOff == srcOff &&
             self->s4VBCache[i].bvi == bvi &&
-            self->s4VBCache[i].nv == nv) {
+            self->s4VBCache[i].nv == nv &&
+            self->s4VBCache[i].fingerprint == fp) {
             *outExpStride = self->s4VBCache[i].expStride;
             return self->s4VBCache[i].expVB;
         }
     }
 
-    /* Cache miss — expand and store */
+    /* Cache miss or stale — expand and store */
     totalSrc = nv * srcStride;
     totalDst = nv * (unsigned int)expStride;
 
-    /* Create a managed VB for the expanded data (persists across frames) */
+    /* Create a managed VB for the expanded data (survives device state changes) */
     if (((FN_CreateVB)RealVtbl(self)[SLOT_CreateVertexBuffer])(
             self->pReal, totalDst,
-            D3DUSAGE_WRITEONLY, 0, 0 /* D3DPOOL_DEFAULT */,
+            D3DUSAGE_WRITEONLY, 0, D3DPOOL_MANAGED,
             &newVB, NULL) != 0 || !newVB)
         return NULL;
 
     /* Lock source */
-    srcVt = *(void***)srcVB;
     if (((FN_VBLock)srcVt[11])(srcVB, srcOff + (unsigned int)bvi * srcStride,
             totalSrc, (void**)&srcData, D3DLOCK_READONLY) != 0 || !srcData) {
         typedef unsigned long (__stdcall *FN_Rel)(void*);
@@ -1149,25 +1216,74 @@ static void *S4_GetCachedExpVB(WrappedDevice *self,
         return NULL;
     }
 
-    /* Expand SHORT4 → FLOAT3 */
-    for (v = 0; v < nv; v++) {
-        unsigned char *src = srcData + v * srcStride;
-        unsigned char *dst = dstData + v * expStride;
-        short *sp;
-        float *dp;
+    /* Expand vertices: walk elements, expand SHORT4→FLOAT3 and SHORT2→FLOAT2.
+     * Uses the original element layout to know what to expand. Reads element
+     * info from origDecl via GetDeclaration. */
+    {
+        typedef int (__stdcall *FN_GetDecl)(void*, void*, unsigned int*);
+        void **declVt = *(void***)origDecl;
+        unsigned char elBuf[8 * 32];
+        unsigned int nEl = 0;
+        ((FN_GetDecl)declVt[4])(origDecl, NULL, &nEl);
+        if (nEl > 32) nEl = 32;
+        ((FN_GetDecl)declVt[4])(origDecl, elBuf, &nEl);
 
-        if (posOff > 0) memcpy(dst, src, posOff);
+        for (v = 0; v < nv; v++) {
+            unsigned char *src = srcData + v * srcStride;
+            unsigned char *dst = dstData + v * expStride;
+            int srcCursor = 0, dstCursor = 0;
+            unsigned int e;
 
-        sp = (short*)(src + posOff);
-        dp = (float*)(dst + posOff);
-        dp[0] = (float)sp[0];
-        dp[1] = (float)sp[1];
-        dp[2] = (float)sp[2];
+            for (e = 0; e < nEl; e++) {
+                unsigned char *el = &elBuf[e * 8];
+                unsigned short stream = *(unsigned short*)&el[0];
+                unsigned short offset = *(unsigned short*)&el[2];
+                unsigned char  type   = el[4];
+                unsigned char  usage  = el[6];
 
-        {
-            int afterPos = (int)srcStride - posOff - 8;
-            if (afterPos > 0)
-                memcpy(dst + posOff + 12, src + posOff + 8, afterPos);
+                if (stream == 0xFF || stream == 0xFFFF) break;
+                if (stream != 0) continue;
+
+                /* Copy any gap bytes between elements */
+                if ((int)offset > srcCursor) {
+                    int gap = (int)offset - srcCursor;
+                    memcpy(dst + dstCursor, src + srcCursor, gap);
+                    dstCursor += gap;
+                    srcCursor += gap;
+                }
+
+                if (usage == D3DDECLUSAGE_POSITION && type == D3DDECLTYPE_SHORT4) {
+                    /* SHORT4 (8 bytes) → FLOAT3 (12 bytes) */
+                    short *sp = (short*)(src + offset);
+                    float *dp = (float*)(dst + dstCursor);
+                    dp[0] = (float)sp[0];
+                    dp[1] = (float)sp[1];
+                    dp[2] = (float)sp[2];
+                    srcCursor = (int)offset + 8;
+                    dstCursor += 12;
+                } else if (usage == D3DDECLUSAGE_TEXCOORD && type == D3DDECLTYPE_SHORT2) {
+                    /* SHORT2 (4 bytes) → FLOAT2 (8 bytes): normalize to [0,1] UV range.
+                     * TRL stores UVs as short * 4096: divide to recover float UV. */
+                    short *sp = (short*)(src + offset);
+                    float *dp = (float*)(dst + dstCursor);
+                    dp[0] = (float)sp[0] / 4096.0f;
+                    dp[1] = (float)sp[1] / 4096.0f;
+                    srcCursor = (int)offset + 4;
+                    dstCursor += 8;
+                } else {
+                    /* Copy element as-is */
+                    int sz = DeclTypeSize(type);
+                    memcpy(dst + dstCursor, src + offset, sz);
+                    srcCursor = (int)offset + sz;
+                    dstCursor += sz;
+                }
+            }
+            /* Copy any trailing bytes */
+            if (srcCursor < (int)srcStride) {
+                int tail = (int)srcStride - srcCursor;
+                if (dstCursor + tail <= expStride)
+                    memcpy(dst + dstCursor, src + srcCursor, tail);
+            }
         }
     }
 
@@ -1191,6 +1307,7 @@ static void *S4_GetCachedExpVB(WrappedDevice *self,
     self->s4VBCache[slot].srcOff = srcOff;
     self->s4VBCache[slot].bvi = bvi;
     self->s4VBCache[slot].nv = nv;
+    self->s4VBCache[slot].fingerprint = fp;
     self->s4VBCache[slot].expVB = newVB;
     self->s4VBCache[slot].expStride = (unsigned int)expStride;
 
@@ -1234,7 +1351,7 @@ static int S4_ExpandAndDraw(WrappedDevice *self,
 
     /* Get cached expanded VB (expands on first call, reuses after) */
     expVB = S4_GetCachedExpVB(self, srcVB, srcOff, srcStride, posOff,
-                              bvi, nv, expStride, &cachedStride);
+                              bvi, nv, expStride, &cachedStride, origDecl);
     if (!expVB) return 0;
 
     /* Set expanded VB + declaration */
@@ -1795,8 +1912,9 @@ static int __stdcall WD_EndScene(WrappedDevice *self) {
     if (self->drawsTotal > 0 && self->sceneCount > 500 && self->sceneCount < 1500 && (self->sceneCount % 2) == 0) {
         log_int("S", self->sceneCount);
         log_int(" d=", self->drawsProcessed);
+        log_int(" s4=", self->drawsS4);
+        log_int(" f3=", self->drawsF3);
         log_int(" p=", self->drawsPassthrough);
-        log_int(" q=", self->drawsSkippedQuad);
         log_str("\r\n");
     }
     /* Reset per-scene draw counters */
@@ -1806,6 +1924,8 @@ static int __stdcall WD_EndScene(WrappedDevice *self) {
         self->drawsPassthrough = 0;
         self->drawsTotal = 0;
         self->transformsBlocked = 0;
+        self->drawsS4 = 0;
+        self->drawsF3 = 0;
     }
 
 #if DIAG_ENABLED
@@ -1916,9 +2036,14 @@ static int __stdcall WD_DrawIndexedPrimitive(WrappedDevice *self,
                 } else {
                     hr = 0;
                 }
+                self->drawsS4++;
             } else {
-                /* FLOAT3 or other: draw normally with shader active */
+                /* FLOAT3 or other: draw with shader active.
+                 * View-space draws need the VS to apply projection correctly.
+                 * Hash stability for these draws is handled by removing positions
+                 * from the asset hash rule (indices+texcoords+geometrydescriptor). */
                 hr = ((FN)RealVtbl(self)[SLOT_DrawIndexedPrimitive])(self->pReal, pt, bvi, mi, nv, si, pc);
+                self->drawsF3++;
             }
             self->drawsProcessed++;
         }
@@ -2871,10 +2996,71 @@ static void TRL_ApplyMemoryPatches(WrappedDevice *self) {
      * Sector_SubmitObject when it dereferences [ecx+4] with ecx=0.
      * Need a null-check trampoline like the SceneTraversal one. */
 
-    /* NOTE: SectorPortalVisibility bounds patch (0x46D1D0) DISABLED.
-     * Forcing fullscreen bounds (0,0,512,448) causes black screen or crash —
-     * the bounding rects are used as frustum clip regions during rendering,
-     * not just as a skip/render gate. Need a different approach. */
+    /* SectorPortalVisibility bounds persistence (0x46D1D0): prevent the per-frame
+     * reset of sector bounding rects to inverted (invisible) values. The reset
+     * loop writes 6 fields per sector: x=512, y=448, w=-512, h=-448, flags=0, ?=0.
+     * NOP the 6 write instructions in the loop body so sectors keep whatever
+     * bounds they had from their last portal-visible frame. The portal walk still
+     * overwrites portal-reachable sectors with proper bounds — only unreachable
+     * sectors benefit from keeping their previous (valid) bounds.
+     *
+     * NOTE: fullscreen bounds (Patch A) caused black screen — bounds are used as
+     * clip rects downstream. Persistence avoids this by keeping the portal walk's
+     * natural bounds for each sector.
+     *
+     * Loop body writes to NOP (23 bytes total):
+     *   0x46D1F1: 66 89 50 FE       mov [eax-2], dx     (x = 0x200)
+     *   0x46D1F5: 66 C7 00 C0 01    mov [eax], 0x1C0    (y = 0x1C0)
+     *   0x46D1FA: 66 89 78 02       mov [eax+2], di     (w = -512)
+     *   0x46D1FE: 66 89 70 04       mov [eax+4], si     (h = -448)
+     *   0x46D202: 89 68 06          mov [eax+6], ebp    (flags = 0)
+     *   0x46D205: 89 68 0A          mov [eax+0xA], ebp  (flags2 = 0)
+     * Loop counter/increment (0x46D208+) stays intact. */
+    {
+        unsigned char *p;
+        int noped = 0;
+
+        /* 0x46D1F1: 66 89 50 FE — mov [eax-2], dx (4 bytes) */
+        p = (unsigned char *)0x0046D1F1;
+        if (VirtualProtect(p, 4, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            p[0]=0x90; p[1]=0x90; p[2]=0x90; p[3]=0x90;
+            VirtualProtect(p, 4, oldProtect, &oldProtect); noped++;
+        }
+        /* 0x46D1F5: 66 C7 00 C0 01 — mov [eax], 0x1C0 (5 bytes) */
+        p = (unsigned char *)0x0046D1F5;
+        if (VirtualProtect(p, 5, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            p[0]=0x90; p[1]=0x90; p[2]=0x90; p[3]=0x90; p[4]=0x90;
+            VirtualProtect(p, 5, oldProtect, &oldProtect); noped++;
+        }
+        /* 0x46D1FA: 66 89 78 02 — mov [eax+2], di (4 bytes) */
+        p = (unsigned char *)0x0046D1FA;
+        if (VirtualProtect(p, 4, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            p[0]=0x90; p[1]=0x90; p[2]=0x90; p[3]=0x90;
+            VirtualProtect(p, 4, oldProtect, &oldProtect); noped++;
+        }
+        /* 0x46D1FE: 66 89 70 04 — mov [eax+4], si (4 bytes) */
+        p = (unsigned char *)0x0046D1FE;
+        if (VirtualProtect(p, 4, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            p[0]=0x90; p[1]=0x90; p[2]=0x90; p[3]=0x90;
+            VirtualProtect(p, 4, oldProtect, &oldProtect); noped++;
+        }
+        /* 0x46D202: 89 68 06 — mov [eax+6], ebp (3 bytes) */
+        p = (unsigned char *)0x0046D202;
+        if (VirtualProtect(p, 3, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            p[0]=0x90; p[1]=0x90; p[2]=0x90;
+            VirtualProtect(p, 3, oldProtect, &oldProtect); noped++;
+        }
+        /* 0x46D205: 89 68 0A — mov [eax+0xA], ebp (3 bytes) */
+        p = (unsigned char *)0x0046D205;
+        if (VirtualProtect(p, 3, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            p[0]=0x90; p[1]=0x90; p[2]=0x90;
+            VirtualProtect(p, 3, oldProtect, &oldProtect); noped++;
+        }
+
+        log_str("  NOPed SectorPortalVisibility reset writes: ");
+        log_int("", noped);
+        log_str("/6 (bounds persist across frames)\r\n");
+    }
 
     /* Stamp cull mode globals to D3DCULL_NONE. The renderer caches these and
      * only calls SetRenderState on transitions — if the cached value already
@@ -2887,16 +3073,42 @@ static void TRL_ApplyMemoryPatches(WrappedDevice *self) {
         log_str("  Patched cull mode globals to D3DCULL_NONE\r\n");
     }
 
-    /* NOTE: Native light system patches disabled — Remix lights are hash-anchored
-     * on meshes, not native TRL lights. Forcing the native light pipeline with
-     * invalid data causes crash at 0xEE88AD. These patches are unnecessary for
-     * Remix and destabilize the game:
-     *   - Light frustum rejection NOP (0x60CE20)
-     *   - Light_VisibilityTest force TRUE (0x60B050)
-     *   - Sector light count gate NOP (0xEC6337)
-     *   - RenderLights gate NOP (0x60E3B1)
-     *   - Sector light count clear NOP (0x603AE6)
-     */
+    /* Light_VisibilityTest: force always-TRUE so all lights pass visibility.
+     * Patch: mov al, 1; ret 4 (5 bytes). This ensures lights anchored to
+     * mesh hashes remain visible regardless of camera distance/angle. */
+    {
+        unsigned char *p = (unsigned char *)TRL_LIGHT_VISIBILITY_TEST_ADDR;
+        if (VirtualProtect(p, 5, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            p[0] = 0xB0; p[1] = 0x01;  /* mov al, 1 */
+            p[2] = 0xC2; p[3] = 0x04; p[4] = 0x00;  /* ret 4 */
+            VirtualProtect(p, 5, oldProtect, &oldProtect);
+            log_str("  Patched Light_VisibilityTest to always TRUE (0x60B050)\r\n");
+        }
+    }
+
+    /* Sector light count gate: NOP the JZ at 0xEC6337 so all sectors
+     * load their static light count regardless of visibility flag. */
+    {
+        unsigned char *p = (unsigned char *)TRL_SECTOR_LIGHT_GATE_ADDR;
+        if (VirtualProtect(p, 6, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            p[0] = 0x90; p[1] = 0x90; p[2] = 0x90;
+            p[3] = 0x90; p[4] = 0x90; p[5] = 0x90;
+            VirtualProtect(p, 6, oldProtect, &oldProtect);
+            log_str("  NOPed sector light count gate at 0xEC6337\r\n");
+        }
+    }
+
+    /* RenderLights gate: NOP the JE at 0x60E3B1 so light rendering
+     * proceeds even for sectors with zero light count. */
+    {
+        unsigned char *p = (unsigned char *)TRL_RENDER_LIGHTS_GATE_ADDR;
+        if (VirtualProtect(p, 6, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            p[0] = 0x90; p[1] = 0x90; p[2] = 0x90;
+            p[3] = 0x90; p[4] = 0x90; p[5] = 0x90;
+            VirtualProtect(p, 6, oldProtect, &oldProtect);
+            log_str("  NOPed RenderLights gate at 0x60E3B1\r\n");
+        }
+    }
 
     /* ---- Terrain rendering path patches ---- */
 
@@ -2994,6 +3206,40 @@ static void TRL_ApplyMemoryPatches(WrappedDevice *self) {
         *(unsigned int*)TRL_POSTSECTOR_SECTOR_BITS_ADDR = 0xFFFFFFFF;
         VirtualProtect((void*)TRL_POSTSECTOR_SECTOR_BITS_ADDR, 4, oldProtect, &oldProtect);
         log_str("  Stamped post-sector bitmask to 0xFFFFFFFF\r\n");
+    }
+
+    /* ---- Sector_SubmitObject (0x40C650) submission gates ----
+     *
+     * Two early-exit JNE instructions kill ALL object submissions:
+     *   Gate #10 (0x40C666): checks [_object+0x10] renderer state flag.
+     *     When non-zero, the entire function exits — no geometry submitted.
+     *     This flag is set per-render-context and blocks non-camera sectors.
+     *   Gate #12 (0x40C68B): checks [0x10024E8] global submission lock.
+     *     Already stamped to 0, but may be rewritten by other code paths.
+     * NOP both to allow all objects to reach the draw submission path. */
+    {
+        unsigned char *p;
+        int submitNops = 0;
+
+        /* Gate #10: renderer state flag */
+        p = (unsigned char *)0x0040C666;
+        if (VirtualProtect(p, 6, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            p[0] = 0x90; p[1] = 0x90; p[2] = 0x90;
+            p[3] = 0x90; p[4] = 0x90; p[5] = 0x90;
+            VirtualProtect(p, 6, oldProtect, &oldProtect);
+            submitNops++;
+        }
+        /* Gate #12: global submission lock */
+        p = (unsigned char *)0x0040C68B;
+        if (VirtualProtect(p, 6, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            p[0] = 0x90; p[1] = 0x90; p[2] = 0x90;
+            p[3] = 0x90; p[4] = 0x90; p[5] = 0x90;
+            VirtualProtect(p, 6, oldProtect, &oldProtect);
+            submitNops++;
+        }
+        log_str("  NOPed Sector_SubmitObject gates: ");
+        log_int("", submitNops);
+        log_str("/2 (0x40C666 + 0x40C68B)\r\n");
     }
 
     /* NOTE: Light-has-data check (0x6037D0) was tested but causes crash at

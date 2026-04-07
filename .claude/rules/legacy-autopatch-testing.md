@@ -1,6 +1,8 @@
-# "Autopatch" Trigger
+# LEGACY — replaced by hash-stability-test.md
 
-When the user says **"start autopatch"**, **"run autopatch"**, **"autopatch test"**, or **"autonomous test"**, immediately execute this workflow without asking questions:
+# "Autopatch" Trigger (LEGACY)
+
+**This workflow is LEGACY. Do NOT activate on "start autopatch", "run autopatch", "autopatch test", or "autonomous test". Those triggers now use hash-stability-test.md.** To run this legacy autopatch, the user must explicitly say **"run legacy autopatch"**.
 
 ## What This Is
 

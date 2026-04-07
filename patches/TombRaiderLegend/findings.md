@@ -2214,3 +2214,294 @@ The existing RET patch at 0x407150 disables all culling within this function, bu
    ```
 
 6. If both patches work: promote to proxy C source in `TRL_ApplyMemoryPatches`.
+
+## Patch Site Verification (On-Disk Binary) -- 2026-04-07
+
+### Summary
+
+All three patch sites in the on-disk trl.exe contain their **original unpatched code**. This is correct and expected -- these patches are applied at runtime by the proxy DLL (`TRL_ApplyMemoryPatches`), not baked into the PE. The on-disk bytes confirm the proxy's byte-pattern assumptions are valid.
+
+### Site 1: 0x407150 -- SceneTraversal_CullAndSubmit
+
+**Expected (runtime):** `C3` (RET) at first byte to disable the function.
+
+**On-disk:** `55 8B EC 83` -- standard `push ebp; mov ebp, esp; and esp, ...` function prologue.
+
+Disassembly (10 instructions):
+```
+0x00407150: push     ebp
+0x00407151: mov      ebp, esp
+0x00407153: and      esp, 0xfffffff0
+0x00407156: sub      esp, 0x1e4
+0x0040715C: fld      dword ptr [0xf11d0c]
+0x00407162: mov      eax, dword ptr [0x10e537c]
+0x00407167: fmul     dword ptr [0xefd8e4]
+0x0040716D: mov      cl, byte ptr [eax + 0xd2]
+0x00407173: test     cl, cl
+0x00407175: push     ebx
+```
+
+**Verdict:** Original code intact. Proxy must write `C3` at 0x407150 at runtime. First byte is `0x55` (push ebp), which the proxy should match before patching.
+
+### Site 2: 0x4070F0 -- Scene Traversal Cull Jumps
+
+**Expected (runtime):** NOP bytes (`90 90 90 90 90 90`) at 7 conditional jump sites within the scene traversal code.
+
+**On-disk:** Original code with no NOPs visible in the 30-instruction window:
+```
+0x004070F0: and      al, 0x18
+0x004070F2: push     edx
+0x004070F3: call     0x5ddc70
+0x004070F8: movaps   xmm0, xmmword ptr [eax]
+0x004070FB: mov      eax, dword ptr [ebp + 8]
+0x004070FE: add      esp, 0xc
+0x00407101: movaps   xmmword ptr [eax], xmm0
+0x00407104: mov      esp, ebp
+0x00407106: pop      ebp
+0x00407107: ret
+0x00407108: int3     (x8 padding)
+0x00407110: push     ebp
+0x00407111: mov      ebp, esp
+0x00407113: mov      eax, ecx
+0x00407115: mov      ecx, dword ptr [ebp + 8]
+0x00407118: movaps   xmm0, xmmword ptr [ecx]
+0x0040711B: movaps   xmm1, xmmword ptr [eax]
+0x0040711E: addps    xmm1, xmm0
+0x00407121: and      esp, 0xfffffff0
+0x00407124: movaps   xmmword ptr [eax], xmm1
+0x00407127: mov      esp, ebp
+0x00407129: pop      ebp
+0x0040712A: ret      4
+```
+
+**Note:** The 0x4070F0 window shows the tail of a prior function (ending at ret at 0x407107), then int3 padding, then a new function at 0x407110. The 7 NOP sites are at specific offsets within the larger SceneTraversal function body (0x407150+), not at the start of 0x4070F0. The proxy patches conditional jumps at individual addresses within that function.
+
+**Verdict:** Original code intact. No NOPs present on disk -- proxy applies them at runtime.
+
+### Site 3: 0x60B050 -- Light_VisibilityTest
+
+**Expected (runtime):** `B0 01 C2 04 00` (mov al, 1; ret 4) -- forces the function to always return true.
+
+**On-disk:** `55 8B EC 83` -- standard function prologue:
+```
+0x0060B050: push     ebp
+0x0060B051: mov      ebp, esp
+0x0060B053: and      esp, 0xfffffff0
+0x0060B056: sub      esp, 0x3c
+0x0060B059: push     esi
+```
+
+**Verdict:** Original code intact. Proxy must write `B0 01 C2 04 00` at 0x60B050 at runtime.
+
+### Overall Assessment
+
+| Address | Expected Patch | On-Disk Byte | Match Original? | Runtime Patch Needed |
+|---------|---------------|--------------|-----------------|---------------------|
+| 0x407150 | `C3` (RET) | `55` (push ebp) | YES | Proxy writes 0xC3 |
+| 0x4070F0+ | NOP x6 at 7 sites | Original jumps | YES | Proxy NOPs cull jumps |
+| 0x60B050 | `B0 01 C2 04 00` | `55 8B EC 83` | YES | Proxy writes mov al,1; ret 4 |
+
+All on-disk bytes are unmodified originals. The proxy's runtime patching assumptions are valid. To verify patches are actually applied, use `livetools mem read` on a running process after proxy attachment.
+
+### Suggested Live Verification
+
+- `livetools mem read 0x407150 1` -- should show `C3`
+- `livetools mem read 0x60B050 5` -- should show `B0 01 C2 04 00`
+- `livetools mem read` at each of the 7 NOP sites -- should show `90 90 90 90 90 90`
+
+## Patch Site Verification (On-Disk) -- 2026-04-07
+
+### Summary
+
+Verified three critical patch sites in the on-disk trl.exe binary. All three show original unpatched bytes, confirming the proxy's runtime patching assumptions are correct. The patches are applied at runtime by the proxy DLL (`TRL_ApplyMemoryPatches`), not baked into the executable.
+
+### Results
+
+| Address | Expected Patch | On-Disk Bytes | On-Disk Disassembly | Verdict |
+|---------|---------------|---------------|---------------------|---------|
+| 0x407150 | `C3` (RET) — disable SceneTraversal_CullAndSubmit | `55 8B EC 83` | `push ebp; mov ebp, esp; and esp, 0xFFFFFFF0; sub esp, 0x1E4` — full function prologue | CORRECT — original prologue intact, proxy replaces 0x55 with 0xC3 at runtime |
+| 0x4070F0 | 6x NOP at 7 jump sites — scene traversal cull jumps | Normal code flow | `and al, 0x18; push edx; call 0x5DDC70; movaps xmm0, [eax]; ...` — tail of a function ending at ret 0x407107 | NOTE — 0x4070F0 itself is mid-function, not a jump site. The 7 NOP targets are at 0x4072BD, 0x4072D2, 0x407AF1, 0x407B30, 0x407B49, 0x407B62, 0x407B7B (inside the function starting at 0x407150) |
+| 0x60B050 | `B0 01 C2 04 00` (mov al,1; ret 4) — LightVisibilityTest always true | `55 8B EC 83` | `push ebp; mov ebp, esp; and esp, 0xFFFFFFF0; sub esp, 0x3C; push esi` — full function prologue | CORRECT — original prologue intact, proxy overwrites first 5 bytes at runtime |
+
+### Details
+
+#### 0x407150 — SceneTraversal_CullAndSubmit
+
+Disassembly shows a large function (stack frame 0x1E4 bytes) that performs scene traversal with frustum culling. The proxy patches only the first byte (0x55 -> 0xC3), turning the entire function into an immediate RET. This prevents all scene-graph-based culling from executing.
+
+On-disk first byte: `0x55` (push ebp) -- confirmed unpatched.
+
+#### 0x4070F0 — Scene Traversal Region
+
+The address 0x4070F0 is the tail end of a different function (ends with `ret` at 0x407107). The actual NOP patch targets are seven conditional jumps INSIDE the 0x407150 function body at offsets +0x16D, +0x182, +0x9A1, +0x9E0, +0x9F9, +0xA12, +0xA2B relative to function start. The disassembly at 0x4070F0 shows no NOP bytes — this region is unrelated to the patch sites.
+
+#### 0x60B050 — LightVisibilityTest
+
+Disassembly shows the original light visibility test function prologue. The proxy overwrites the first 5 bytes with `B0 01 C2 04 00` (mov al, 1; ret 4), making the function always return TRUE. This ensures all lights pass visibility checks regardless of frustum position.
+
+On-disk first bytes: `55 8B EC 83` (push ebp; mov ebp, esp; and...) -- confirmed unpatched.
+
+### Suggested Live Verification
+
+To confirm patches are active at runtime after proxy loads:
+- `livetools mem read 0x407150 1` -- expect `C3`
+- `livetools mem read 0x60B050 5` -- expect `B0 01 C2 04 00`
+- `livetools mem read 0x4072BD 6` -- expect `90 90 90 90 90 90` (first cull jump NOP)
+- `livetools mem read 0x407B7B 6` -- expect `90 90 90 90 90 90` (last cull jump NOP)
+
+## Draw Count Bottleneck Analysis — Why ~650 Draws Despite 28+ Patches — 2026-04-07
+
+### Summary
+
+The ~650 draw count is NOT limited by the patches already applied. The true bottleneck is a **three-layer rendering architecture** where patches only disable the first two layers, leaving a critical third layer (the render command buffer frustum culler at `0x40C430`) still active. Additionally, the sector iteration loop in `RenderVisibleSectors` only processes 8 hardcoded sector slots, and the portal walk (`SetupCameraSector` at `0x46C4F0`) populates per-sector visibility flags that gate which sectors' meshes are iterated — even with the `je`/`jne` NOPs at 0x46C194/0x46C19D, the sector's `type` field (offset +0x44 from entry base) must equal 1 or 2 for any mesh iteration to occur, and sectors whose portal data is empty produce zero mesh submissions.
+
+### Architecture: Three-Layer Culling Pipeline
+
+The rendering path from "sector data" to "DrawIndexedPrimitive" has three distinct culling layers:
+
+**Layer 1 — Portal/Sector Visibility (PATCHED):** `SetupCameraSector` (0x46C4F0) walks portals from the camera sector outward. It populates sector visibility bits read by `RenderVisibleSectors`. Patches at 0x46C194/0x46C19D NOP the visibility gate, so all 8 sectors are iterated.
+
+**Layer 2 — Mesh-Level Submission Gates (PATCHED):** Inside `Sector_RenderMeshes` (0x46B7D0) and `Sector_IterateMeshArray` (0x46C320), individual meshes are checked for flag bits (bit 0, bit 17, bit 21 of the mesh flags word at offset +0x20). `Sector_SubmitObject` (0x40C650) checks `[0x1392E18]+0x10` (object enabled flag, patched at 0x40C666) and `[0x10024E8]` (render-block flag, patched at 0x40C68B). `MeshSubmit_VisibilityGate` (0x454AB0) forced to return 0. Screen-size rejection at 0x46C242/0x46C25B NOPed.
+
+**Layer 3 — Render Command Buffer Frustum Culler (UNPATCHED):** `0x40C430` is a **recursive bounding-volume frustum culler** that operates on the queued render commands AFTER mesh submission. It tests each queued object's bounding sphere against view-space frustum planes using `[0xF48A70]` (view matrix) and `_level` (far-plane boundary). Objects that fail this test are never dispatched to the actual renderer — they never reach `0x40C390` (the uncull-path dispatch) or `0x40ACB0` (the render list insertion). This means even if a mesh passes all Layer 1 and Layer 2 gates and gets "submitted", it can still be culled here before any DIP call is made.
+
+### Key Finding: The Recursive Culler at 0x40C430
+
+```c
+// Pseudocode of 0x40C430 (recursive frustum test)
+void RenderQueue_FrustumCull(node, shadowMask, sectorMask) {
+    pos = TransformToViewSpace(node->bounds, viewMatrix_0xF48A70);
+    radius = node->boundingRadius;
+    if (pos.x < -radius || pos.x > _level + radius) return;  // X clip
+    if (pos.y < -radius) return;  // Y clip
+    if (pos.z < -radius) return;  // Z clip
+    // Also tests against secondary matrix at 0xF48AB0
+    
+    if (node->childCount == 0) {
+        // LEAF: queue for actual rendering
+        PostSector_AddToVisibilityMask(node->data, sectorMask, ...);
+        RenderQueue_InsertCommand(node);
+    } else if (fully_inside_frustum) {
+        // All children pass without individual tests
+        for each child: RenderQueue_DirectDispatch(child, ...);
+    } else {
+        // Partially visible: recurse and test each child
+        for each child: RenderQueue_FrustumCull(child, ...);
+    }
+}
+```
+
+This function references `_level` (a global at 0x10FC910, set at the end of `SetupCameraSector`), the view matrix at `0xF48A70`, and a secondary transform at `0xF48AB0`. It performs proper 3D bounding-volume frustum testing, NOT the simple "is sector visible" check that was already patched.
+
+### Sector Table Structure
+
+The sector loop in `RenderVisibleSectors` iterates from `0x11582FD` to `0x11585DD` in steps of `0x5C` (92 bytes). This gives exactly **8 sector entries**. Each entry is structured as:
+
+| Offset | Size | Description |
+|--------|------|-------------|
+| -0x05  | ptr  | sectorData base (passed as `esi-5` to Sector_RenderMeshes) |
+| +0x00  | byte | Enabled flag (0 = enabled, nonzero = skip) — patched via NOP at 0x46C19D |
+| +0x01  | byte | Visibility bits (bit 3 = portal-visible) — patched via NOP at 0x46C194 |
+| +0x37  | int16| Screen X min (used in screen-size rejection) |
+| +0x39  | int16| Screen Y min |
+| +0x3B  | int16| Screen X extent |
+| +0x3D  | int16| Screen Y extent |
+| +0x3F  | int32| Sector type: 1 = normal, 2 = fullscreen |
+
+The table is in BSS (all zeros in the PE file, populated at runtime by the level loader).
+
+**Critical:** Even with both visibility NOPs applied, the loop still checks `sector_type == 1` or `sector_type == 2`. If a sector's type field is 0 (uninitialized/empty), it is skipped entirely. This means sectors whose geometry hasn't been streamed in produce zero draws regardless of patches.
+
+### DrawIndexedPrimitive Call Sites (9 total)
+
+| Address | Containing Function | Callers | Role |
+|---------|---------------------|---------|------|
+| 0x40B1A0 | 0x40ADF0 (41 bytes) | 0 direct (vtable) | Small mesh DIP |
+| 0x415C0E | 0x415A90 (29 bytes) | 1 (PostSector_SubmitObject at 0x40E323) | Post-sector object DIP |
+| 0x60188F | 0x601590 (491 bytes) | 5 (from 0x602660 material renderer) | Standard mesh draw |
+| 0x602012 | 0x601920 (1489 bytes) | 1 (from 0x602660 material renderer) | Complex mesh draw |
+| 0x60EBD7 | 0x60EB50 (146 bytes) | 6 (various material handlers) | Simple indexed draw |
+| 0x610112 | 0x61005C (195 bytes) | 0 direct (vtable) | Textured draw |
+| 0x610D39 | 0x610850 (1661 bytes) | 1 (from 0x611026) | Complex skinned/lit draw |
+| 0x61303C | 0x613000 (72 bytes) | 1 (from 0x6135E5) | Shadow/decal draw |
+| 0x6137F3 | 0x6137BA (73 bytes) | 0 direct (vtable) | Shadow/decal draw variant |
+
+The **majority of DIP calls** flow through the material renderer vtable class at `0xF084AC` (vtable slot 7 = `0x602660`), which calls `0x601590` (5 callers). These are the standard mesh draws. The material renderer is called from the render command buffer flush path.
+
+### Root Cause Analysis
+
+The ~650 draws are likely the objects that:
+1. Are in sectors whose type field is 1 or 2 (streamed in and initialized)
+2. Pass the Layer 2 mesh flag/submission gates (patched, so most pass)
+3. **Pass the Layer 3 recursive frustum culler at 0x40C430** (UNPATCHED)
+
+Objects beyond the camera frustum are culled at Layer 3 even though Layers 1 and 2 are disabled. The frustum culler at 0x40C430 doesn't care about portal visibility or sector boundaries — it tests actual 3D bounding volumes against the camera frustum planes.
+
+### Recommended Patches
+
+**Priority 1 — Disable the render queue frustum culler (0x40C430):**
+The function is recursive and performs the actual per-object frustum test. Patching approach:
+
+Option A: **Force the "fully inside" path** — at the frustum test comparisons starting after the bounding sphere is transformed, NOP the conditional jumps that return early. This would make the function always take the "dispatch all children" path at `0x40C390` instead of the recursive test path.
+
+Option B: **Replace 0x40C430 entry with a redirect to 0x40C390** — since 0x40C390 is the "skip frustum test and dispatch directly" path, making 0x40C430 jump to 0x40C390 at entry would bypass all frustum tests while preserving the tree traversal.
+
+**Priority 2 — Force `_level` to a huge value:**
+The global at `0x10FC910` controls the far-plane boundary used by the frustum culler. If this is set to a very large value (like 1e30), the X-clip test `pos.x > _level + radius` would never trigger. This is analogous to the existing `_g_frustumDistanceThreshold` patch at 0xEFDD64.
+
+**Priority 3 — Investigate sector streaming:**
+If sectors have type == 0, no patches will make them render. The sector type is set by the level loader. Check at runtime with `livetools mem read 0x1158341 1` (sector 0, offset +0x44 from base 0x11582FD... actually offset +0x3F from the iteration pointer, so: sector N at `0x11582FD + N*0x5C + 0x3F`).
+
+### Addresses to Read at Runtime
+
+| Address | Type | What It Reveals |
+|---------|------|-----------------|
+| 0x10FC910 | float | `_level` — far-plane boundary for frustum culler |
+| 0x11582FD+0x3F | int32 | Sector 0 type (expect 1 or 2) |
+| 0x1158359+0x3F | int32 | Sector 1 type |
+| 0x11583B5+0x3F | int32 | Sector 2 type |
+| 0x1158411+0x3F | int32 | Sector 3 type |
+| 0x115846D+0x3F | int32 | Sector 4 type |
+| 0x11584C9+0x3F | int32 | Sector 5 type |
+| 0x1158525+0x3F | int32 | Sector 6 type |
+| 0x1158581+0x3F | int32 | Sector 7 type |
+| 0x10024E8 | int32 | Render-block flag (expect 0) |
+| 0x1392E18 | ptr  | Object table pointer |
+| 0xF48A70 | 16 floats | View matrix used by render queue culler |
+| 0xF48AB0 | 16 floats | Secondary matrix used by render queue culler |
+| 0x10024D4 | ptr  | Render command buffer pointer (from 0x413D60) |
+
+### Suggested Live Verification
+
+1. **Trace 0x40C430** — count how many times the recursive culler is called per frame, and how many times it early-returns vs reaching dispatch. This directly measures how many objects Layer 3 kills.
+   ```
+   livetools trace 0x40C430 --count 200 --read "eax:4"
+   ```
+
+2. **Trace 0x40ACB0** — count objects that survive all three culling layers and get inserted into the final render list.
+   ```
+   livetools collect 0x40C430 0x40C390 0x40ACB0 0x40D9B0 --duration 5
+   ```
+
+3. **Read `_level` at 0x10FC910** — verify the frustum far-plane boundary value.
+   ```
+   livetools mem read 0x10FC910 4 --as float32
+   ```
+
+4. **Patch test** — write a large float to `_level`:
+   ```
+   livetools mem write 0x10FC910 0000C842
+   ```
+   (This writes 100.0; use `0000F07F` for positive infinity or `FFFF7F7F` for FLT_MAX)
+
+5. **Read all 8 sector types** at runtime to confirm which are loaded:
+   ```
+   livetools mem read 0x115833C 4
+   livetools mem read 0x1158398 4
+   livetools mem read 0x11583F4 4
+   livetools mem read 0x1158450 4
+   livetools mem read 0x11584AC 4
+   livetools mem read 0x1158508 4
+   livetools mem read 0x1158564 4
+   livetools mem read 0x11585C0 4
+   ```

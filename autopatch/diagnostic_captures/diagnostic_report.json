@@ -1,0 +1,842 @@
+{
+  "near_frame": "C:\\Users\\skurtyy\\Documents\\GitHub\\AlmightyBackups\\NightRaven1\\Vibe-Reverse-Engineering-Claude\\autopatch\\diagnostic_captures\\near_frame.jsonl",
+  "far_frame": "C:\\Users\\skurtyy\\Documents\\GitHub\\AlmightyBackups\\NightRaven1\\Vibe-Reverse-Engineering-Claude\\autopatch\\diagnostic_captures\\far_frame.jsonl",
+  "total_missing_draws": 2428,
+  "missing_draws": [
+    {
+      "seq_near": 38,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 50,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774E03",
+        "0x57773437",
+        "0x577733D4",
+        "0x00EE8032"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 261
+    },
+    {
+      "seq_near": 40,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 50,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x0040CD1A",
+        "0x00452530"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 261
+    },
+    {
+      "seq_near": 52,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 84,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x00452530",
+        "0x0045DA62"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 261
+    },
+    {
+      "seq_near": 54,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 41,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x7977B6DE",
+        "0x79774E7C",
+        "0x79774E03",
+        "0x5777679E",
+        "0x770A460B"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 261
+    },
+    {
+      "seq_near": 76,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 78,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774E03",
+        "0x00415654",
+        "0x57773437",
+        "0x577733D4"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 77,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 63,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x005DAC04",
+        "0x00EEACBB"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 78,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 88,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x7708933C",
+        "0x76DA68E0"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 79,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 40,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x005DAC04",
+        "0x00EEACBB"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 81,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 35,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x0045DA62",
+        "0x0040235A"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 82,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 83,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x0040CD1A",
+        "0x00452530"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 279770
+    },
+    {
+      "seq_near": 83,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 63,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x00EEACBB",
+        "0x770A460B"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 279770
+    },
+    {
+      "seq_near": 84,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 60,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x7708933C",
+        "0x76DA68E0"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 279770
+    },
+    {
+      "seq_near": 85,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 64,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x00EEACBB",
+        "0x770A460B"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 279770
+    },
+    {
+      "seq_near": 86,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 85,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x7708933C",
+        "0x76DA68E0"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 279770
+    },
+    {
+      "seq_near": 87,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 45,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x00EEACBB",
+        "0x770A460B"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 279770
+    },
+    {
+      "seq_near": 88,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 72,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x7708933C",
+        "0x76DA68E0"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 279770
+    },
+    {
+      "seq_near": 89,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 57,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x00EEACBB",
+        "0x770A460B"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 279770
+    },
+    {
+      "seq_near": 90,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 74,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x7708933C",
+        "0x76DA68E0"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 279770
+    },
+    {
+      "seq_near": 91,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 49,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x00EEACBB",
+        "0x770A460B"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 279770
+    },
+    {
+      "seq_near": 92,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 68,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x7708933C",
+        "0x76DA68E0"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 279770
+    },
+    {
+      "seq_near": 93,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 72,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x00EEACBB",
+        "0x770A460B"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 279770
+    },
+    {
+      "seq_near": 94,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 78,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x7708933C",
+        "0x76DA68E0"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 279770
+    },
+    {
+      "seq_near": 95,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 46,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x00EEACBB",
+        "0x770A460B"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 279770
+    },
+    {
+      "seq_near": 97,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 66,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x0045DA62",
+        "0x0040235A"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 98,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 83,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x0040CD1A",
+        "0x00452530"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 99,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 82,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x00EEACBB",
+        "0x770A460B"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 100,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 66,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x7708933C",
+        "0x76DA68E0"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 101,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 67,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x00EEACBB",
+        "0x770A460B"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 102,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 85,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x7708933C",
+        "0x76DA68E0"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 103,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 99,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x00EEACBB",
+        "0x770A460B"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 104,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 46,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x7708933C",
+        "0x76DA68E0"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 105,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 99,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x00EEACBB",
+        "0x770A460B"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 107,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 26,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x0045DA62",
+        "0x0040235A"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 108,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 75,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x0040CD1A",
+        "0x00452530"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 109,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 72,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x00EEACBB",
+        "0x770A460B"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 110,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 66,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x7708933C",
+        "0x76DA68E0"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 111,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 32,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x00EEACBB",
+        "0x770A460B"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 112,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 68,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x7708933C",
+        "0x76DA68E0"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 113,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 22,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x00EEACBB",
+        "0x770A460B"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 114,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 75,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x7708933C",
+        "0x76DA68E0"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 115,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 57,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x00EEACBB",
+        "0x770A460B"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 116,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 81,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x7708933C",
+        "0x76DA68E0"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 117,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 77,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x00EEACBB",
+        "0x770A460B"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 118,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 29,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x7708933C",
+        "0x76DA68E0"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 119,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 85,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x00EEACBB",
+        "0x770A460B"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 295809
+    },
+    {
+      "seq_near": 120,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 80,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x7708933C",
+        "0x76DA68E0"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 279770
+    },
+    {
+      "seq_near": 121,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 45,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x00EEACBB",
+        "0x770A460B"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 279770
+    },
+    {
+      "seq_near": 123,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 80,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x0045DA62",
+        "0x0040235A"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 279770
+    },
+    {
+      "seq_near": 124,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 58,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x0040CD1A",
+        "0x00452530"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 279770
+    },
+    {
+      "seq_near": 125,
+      "method": "DrawIndexedPrimitive",
+      "prim_count": 84,
+      "vtx_decl_hash": "",
+      "texture_ptrs": [],
+      "caller_addrs": [
+        "0x79774E7C",
+        "0x79774C6D",
+        "0x79774E03",
+        "0x00EEACBB",
+        "0x770A460B"
+      ],
+      "start_vertex": 0,
+      "num_vertices": 279770
+    }
+  ],
+  "unique_caller_addrs": [
+    "0x0040235A",
+    "0x00402361",
+    "0x0040CD1A",
+    "0x00415654",
+    "0x00415969",
+    "0x00415A6D",
+    "0x00452530",
+    "0x0045DA62",
+    "0x005DAC04",
+    "0x005DD088",
+    "0x00EC9370",
+    "0x00EE5A51",
+    "0x00EE8032",
+    "0x00EEACBB",
+    "0x577718C9",
+    "0x577733D4",
+    "0x57773437",
+    "0x5777679E",
+    "0x577905E1",
+    "0x577905EF",
+    "0x76DA68E0",
+    "0x77063339",
+    "0x7707D7C1",
+    "0x7708933C",
+    "0x770A0088",
+    "0x770A460B",
+    "0x7977279E",
+    "0x79774C6D",
+    "0x79774C8C",
+    "0x79774E03",
+    "0x79774E7C",
+    "0x797755C6",
+    "0x7977B6DE"
+  ]
+}

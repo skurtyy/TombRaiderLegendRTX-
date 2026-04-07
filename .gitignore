@@ -82,12 +82,19 @@ docs/
 /TombRaiderLegendRTX-/
 /TRLAU-menu-hook/
 /TombRaiderLegend/
+/TR7SCU/
 
 # Tool archives (downloaded, not source)
 tools/apitrace-*.7z
 tools/radare2.zip
 tools/radare2-5*/
 tools/apitrace-*/
+
+# Autopatch diagnostic captures (large JSONL frame data, regenerated per run)
+autopatch/diagnostic_captures/*.jsonl
+
+# Game checkpoint files (binary, machine-specific)
+patches/*/*.dat
 
 # Chat logs (personal, not project docs)
 chatgpt1.md

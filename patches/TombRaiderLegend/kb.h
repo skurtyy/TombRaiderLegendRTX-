@@ -5,6 +5,22 @@
  */
 
 // ============================================================
+// DrawIndexedPrimitive call sites (9 total, D3D9 vtable offset 0x148)
+// ============================================================
+// 0x40B1A0 in 0x40ADF0 — small mesh DIP (vtable dispatch, no direct callers)
+// 0x415C0E in 0x415A90 — post-sector object DIP (called from PostSector at 0x40E323)
+// 0x60188F in 0x601590 — standard mesh draw (5 callers from material renderer 0x602660)
+// 0x602012 in 0x601920 — complex mesh draw (1 caller from material renderer)
+// 0x60EBD7 in 0x60EB50 — simple indexed draw (6 callers from various material handlers)
+// 0x610112 in 0x61005C — textured draw (vtable dispatch)
+// 0x610D39 in 0x610850 — complex skinned/lit draw (1 caller from 0x611026)
+// 0x61303C in 0x613000 — shadow/decal draw (1 caller from 0x6135E5)
+// 0x6137F3 in 0x6137BA — shadow/decal variant (vtable dispatch)
+//
+// Material renderer vtable at 0xF084AC (no RTTI), slot 7 (+0x1C) = 0x602660
+// Majority of DIP calls flow through this vtable from the render command buffer flush.
+
+// ============================================================
 // D3D9 vtable offsets used by the engine
 // ============================================================
 // 0x0E4 = SetRenderState          (method 57)
@@ -313,6 +329,35 @@ struct RenderContext {
 @ 0x0040C650 void __cdecl Sector_SubmitObject(void* meshBase, void* objectEntry);
              //   GATE: [_object+0x10]==0 AND (objectEntry+0x20 >= 0 OR [_object+0x182]!=0) AND [0x10024E8]==0
              //   Sets up matrices, builds lighting mask, calls 0x40C430 and 0x40C040 to submit
+@ 0x0040C430 void __cdecl RenderQueue_FrustumCull(void* node, uint32_t shadowMask, uint32_t sectorMask);
+             //   RECURSIVE bounding-volume frustum culler for queued render commands.
+             //   Tests node bounding sphere against view-space frustum planes (viewMatrix at 0xF48A70,
+             //   secondary matrix at 0xF48AB0, far boundary from _level at 0x10FC910).
+             //   If fully inside: dispatches all children via 0x40C390 (no per-child test).
+             //   If partially visible: recurses on each child.
+             //   If outside: RETURNS EARLY — object never reaches DIP.
+             //   Leaf nodes (childCount==0): calls 0x40D9B0 (PostSector_AddVisibility) and 0x40ACB0
+             //   (RenderQueue_InsertCommand). This is the THIRD culling layer — objects that pass
+             //   portal visibility (Layer 1) and mesh submission gates (Layer 2) can still be
+             //   frustum-culled here before any DrawIndexedPrimitive.
+             //   **UNPATCHED** — this is the likely bottleneck for ~650 draw count.
+@ 0x0040C390 void __cdecl RenderQueue_DirectDispatch(void* node, uint32_t shadowMask, uint32_t sectorMask);
+             //   Skip-frustum-test path: recursively dispatches all children of a node
+             //   without bounding volume tests. Called from 0x40C430 when node is fully inside frustum.
+             //   Leaf nodes: calls 0x40D9B0 and 0x40ACB0 directly.
+@ 0x0040ACB0 void __fastcall RenderQueue_InsertCommand(void* renderCmd);
+             //   Inserts a render command into the final render list at [esi+0x90].
+             //   This is the gateway to actual rendering — only commands reaching here
+             //   will eventually produce DrawIndexedPrimitive calls.
+@ 0x0040D9B0 void __cdecl PostSector_AddToVisibilityMask(uint32_t param1, uint32_t sectorMask, void* meshBase, void* objectEntry);
+             //   Sets bits in g_postSectorVisibilityMask (0xFFA718) based on sectorMask.
+             //   Also appends to render queue at [0xFF9710 + g_queueIndex*0x10].
+             //   Called from leaf nodes of RenderQueue_FrustumCull and RenderQueue_DirectDispatch.
+@ 0x0040C040 void __cdecl RenderQueue_DispatchMeshGroups(void* objectEntry, void* meshBase);
+             //   Iterates mesh groups within an object. For each group:
+             //   Allocates render command (0x413D60), calls 0x40ACF0 (large render submit),
+             //   then processes material/LOD via 0x40BD10 or 0x413D70+EC9DC0.
+             //   Called from Sector_SubmitObject after matrix setup.
 @ 0x0040E2C0 void __cdecl PostSector_ObjectLoop(uint32_t* sectorArray);
              //   Post-sector object iteration with distance culling.
              //   GATE 1: [0xF12016] must be nonzero (enable flag)
@@ -487,6 +532,13 @@ $ 0x010024E8 int g_drawSubmitMode              // 0 = normal render, nonzero = s
 $ 0x00F127B8 int g_fadeActive                  // nonzero = screen fade in progress
 $ 0x00F127D4 int g_fadeAlpha                   // current fade alpha (0x80 = fully opaque)
 $ 0x00F127C8 float g_fadeDelta                 // fade speed/direction
+$ 0x00F48A70 float[16] g_viewMatrixForCull     // view matrix used by RenderQueue_FrustumCull (0x40C430)
+$ 0x00F48AB0 float[16] g_secondaryMatrixForCull // secondary matrix used by RenderQueue_FrustumCull
+$ 0x00F48A50 void* g_currentMeshBase           // set by Sector_SubmitObject before calling 0x40C430
+$ 0x00F48A54 void* g_currentObjectEntry        // set by Sector_SubmitObject before calling 0x40C430
+$ 0x00FFA714 int g_renderQueueIndex            // index into render queue at 0xFF9710
+$ 0x010024D4 void* g_renderCommandBuffer       // returned by 0x413D60, render command buffer pointer
+$ 0x01002510 void* g_renderCommandBuffer2      // returned by 0x413D70, secondary render buffer
 $ 0x00F127B8 int g_fadeActive                  // nonzero = fade animation in progress
 $ 0x00F127BC int g_fadeCurrentAlpha            // current alpha level (0-128, 0x80=fully opaque)
 $ 0x00F127C0 int g_fadeTargetAlpha             // target alpha level for fade

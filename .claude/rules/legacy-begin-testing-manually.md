@@ -1,6 +1,8 @@
-# "Begin Testing Manually" Trigger
+# LEGACY — replaced by hash-stability-test.md
 
-When the user says **"begin testing manually"**, **"manual test"**, **"test manually"**, or **"manual testing"**, immediately execute this workflow without asking questions:
+# "Begin Testing Manually" Trigger (LEGACY)
+
+**This workflow is LEGACY. Do NOT activate on "begin testing manually", "manual test", "test manually", or "manual testing". Those triggers now use hash-stability-test.md.** To run this legacy test, the user must explicitly say **"run legacy manual test"**.
 
 ## Workflow
 

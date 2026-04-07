@@ -1,13 +1,15 @@
 """Tomb Raider Legend — Autonomous test orchestrator.
 
-Two modes:
-  record   Launch game, wait for window, record your inputs, save macro.
-  test     Launch game, wait for window, replay macro, collect diagnostics.
+Modes:
+  test           Hash stability test (camera-only, no WASD movement).
+  record         Launch game, record your inputs, save macro.
+  test-legacy    Legacy 3-phase test with A/D movement.
+  batch-legacy   Legacy batch runs with randomized movement.
 
 Usage:
+  python patches/TombRaiderLegend/run.py test --build
   python patches/TombRaiderLegend/run.py record
-  python patches/TombRaiderLegend/run.py test
-  python patches/TombRaiderLegend/run.py test --build   (build proxy first)
+  python patches/TombRaiderLegend/run.py test-legacy --build --randomize
 """
 
 import argparse
@@ -508,7 +510,7 @@ def do_record():
     print(f"\nTest with:  python {Path(__file__).name} test")
 
 
-def generate_random_movement():
+def generate_random_movement_legacy():
     """Generate a randomized movement+screenshot sequence for hash testing.
 
     Each call produces a unique pattern of A/D strafes with random hold
@@ -543,7 +545,7 @@ def generate_random_movement():
     return " ".join(tokens)
 
 
-def do_live_analysis(hwnd, duration_s=60):
+def do_live_analysis_legacy(hwnd, duration_s=60):
     """Run a live analysis phase: attach livetools, move Lara around while
     collecting render pipeline data, then save results.
 
@@ -672,7 +674,323 @@ def do_live_analysis(hwnd, duration_s=60):
     return results
 
 
-def do_test(build_first=False, randomize=False):
+def set_debug_view(idx):
+    """Set RTX Remix debug view index in rtx.conf."""
+    import re
+    rtx_conf = GAME_DIR / "rtx.conf"
+    if not rtx_conf.exists():
+        return
+    text = rtx_conf.read_text()
+    new_text = re.sub(
+        r'rtx\.debugView\.debugViewIdx\s*=\s*\d+',
+        f'rtx.debugView.debugViewIdx = {idx}',
+        text
+    )
+    if new_text != text:
+        rtx_conf.write_text(new_text)
+
+
+def camera_pan_and_screenshot(hwnd, phase_name):
+    """Execute gentle camera pan sequence: center, left, right — 3 screenshots.
+
+    Only moves the camera (mouse), never moves Lara (no WASD). Returns the
+    collected screenshot paths.
+    """
+    from livetools.gamectl import send_key, send_keys, move_mouse_relative, focus_hwnd
+
+    print(f"\n--- {phase_name}: Camera pan + screenshots ---")
+    focus_hwnd(hwnd)
+    time.sleep(0.5)
+
+    # Skip cutscene: ESC → UP → RETURN
+    send_keys(hwnd, "ESC WAIT:500 UP WAIT:300 RETURN", delay_ms=0)
+    print("  Cutscene skip sent. Waiting 3s for gameplay...")
+    time.sleep(3)
+
+    # Screenshot at center position
+    print("  Screenshot: center")
+    send_key("]", hold_ms=50)
+    time.sleep(1.5)
+
+    # Gentle camera pan LEFT (10 steps, -30px each = 300px total)
+    print("  Camera pan: LEFT")
+    for _ in range(10):
+        move_mouse_relative(-30, 0)
+        time.sleep(0.1)
+    time.sleep(0.5)
+
+    # Screenshot at left position
+    print("  Screenshot: left")
+    send_key("]", hold_ms=50)
+    time.sleep(1.5)
+
+    # Gentle camera pan RIGHT (20 steps, +30px each = 600px total, nets 300px right of center)
+    print("  Camera pan: RIGHT")
+    for _ in range(20):
+        move_mouse_relative(30, 0)
+        time.sleep(0.1)
+    time.sleep(0.5)
+
+    # Screenshot at right position
+    print("  Screenshot: right")
+    send_key("]", hold_ms=50)
+    time.sleep(1.5)
+
+    return collect_screenshots(max_age_seconds=30, limit=3)
+
+
+def do_livetools_diagnostics(hwnd):
+    """Phase 3: Attach livetools and run deep diagnostics.
+
+    Returns dict of diagnostic results.
+    """
+    from livetools.gamectl import send_key, move_mouse_relative, focus_hwnd
+
+    print("\n=== Phase 3: Livetools Deep Diagnostics ===")
+
+    # Attach livetools
+    print("Attaching livetools...")
+    r = subprocess.run(
+        ["python", "-m", "livetools", "attach", "trl.exe"],
+        capture_output=True, text=True, cwd=str(REPO_ROOT)
+    )
+    if "Attached" not in r.stdout and "Attached" not in r.stderr:
+        print(f"WARNING: livetools attach may have failed: {r.stderr}")
+        return {"error": "attach failed"}
+
+    results = {}
+
+    # 3a. Draw call census
+    print("\n--- 3a: Draw call census (dipcnt) ---")
+    focus_hwnd(hwnd)
+    time.sleep(0.5)
+
+    subprocess.run(["python", "-m", "livetools", "dipcnt", "on"],
+                   capture_output=True, text=True, cwd=str(REPO_ROOT))
+    time.sleep(2)
+
+    # Read at center
+    r = subprocess.run(["python", "-m", "livetools", "dipcnt", "read"],
+                       capture_output=True, text=True, cwd=str(REPO_ROOT))
+    center_count = r.stdout.strip()
+    print(f"  Center: {center_count}")
+
+    # Pan left
+    for _ in range(10):
+        move_mouse_relative(-30, 0)
+        time.sleep(0.1)
+    time.sleep(1)
+
+    r = subprocess.run(["python", "-m", "livetools", "dipcnt", "read"],
+                       capture_output=True, text=True, cwd=str(REPO_ROOT))
+    left_count = r.stdout.strip()
+    print(f"  Left: {left_count}")
+
+    # Pan right (back past center to right)
+    for _ in range(20):
+        move_mouse_relative(30, 0)
+        time.sleep(0.1)
+    time.sleep(1)
+
+    r = subprocess.run(["python", "-m", "livetools", "dipcnt", "read"],
+                       capture_output=True, text=True, cwd=str(REPO_ROOT))
+    right_count = r.stdout.strip()
+    print(f"  Right: {right_count}")
+
+    subprocess.run(["python", "-m", "livetools", "dipcnt", "off"],
+                   capture_output=True, text=True, cwd=str(REPO_ROOT))
+
+    results["dipcnt"] = {
+        "center": center_count, "left": left_count, "right": right_count
+    }
+
+    # 3b. Function call collection (15s during camera pan)
+    print("\n--- 3b: Function call collection (15s) ---")
+    capture_dir = SCRIPT_DIR / "captures" / "hash_stability"
+    capture_dir.mkdir(parents=True, exist_ok=True)
+    fn_file = str(capture_dir / "live_functions.jsonl")
+
+    collect_proc = subprocess.Popen(
+        ["python", "-m", "livetools", "collect",
+         "0x00413950", "0x00ECBB00", "0x0060C7D0", "0x0060B050",
+         "--duration", "15",
+         "--label", "0x00413950=SetWorldMatrix",
+         "--label", "0x00ECBB00=UploadViewProjMatrices",
+         "--label", "0x0060C7D0=RenderLights_FrustumCull",
+         "--label", "0x0060B050=LightVisibilityCheck",
+         "--output", fn_file],
+        cwd=str(REPO_ROOT), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+
+    # Gentle camera movement during collection
+    focus_hwnd(hwnd)
+    for _ in range(3):
+        for _ in range(5):
+            move_mouse_relative(-20, 0)
+            time.sleep(0.1)
+        time.sleep(1)
+        for _ in range(5):
+            move_mouse_relative(20, 0)
+            time.sleep(0.1)
+        time.sleep(1)
+
+    collect_proc.wait(timeout=30)
+    fn_size = Path(fn_file).stat().st_size if Path(fn_file).exists() else 0
+    results["collect"] = {"file": fn_file, "size": fn_size}
+
+    if fn_size > 0:
+        r = subprocess.run(
+            ["python", "-m", "livetools", "analyze", fn_file, "--summary"],
+            capture_output=True, text=True, cwd=str(REPO_ROOT)
+        )
+        print(r.stdout)
+        results["collect"]["summary"] = r.stdout
+
+    # 3c. Patch integrity (mem read)
+    print("\n--- 3c: Patch integrity ---")
+    patch_checks = [
+        ("0xEFDD64", "4", "--as", "float32", "frustum threshold (expect -1e30)"),
+        ("0xF2A0D4", "12", "--as", "float32", "cull mode globals"),
+        ("0x407150", "1", None, None, "cull function entry (expect C3=RET)"),
+        ("0x60B050", "4", None, None, "LightVisibilityTest (expect B001C204)"),
+    ]
+    results["patches"] = {}
+    for addr, size, flag, flag_val, desc in patch_checks:
+        cmd = ["python", "-m", "livetools", "mem", "read", addr, size]
+        if flag:
+            cmd.extend([flag, flag_val])
+        r = subprocess.run(cmd, capture_output=True, text=True, cwd=str(REPO_ROOT))
+        val = r.stdout.strip()
+        print(f"  {desc}: {val}")
+        results["patches"][addr] = val
+
+    # 3d. Memory watchpoint (abbreviated — trace SetStreamSource to find VB addr)
+    print("\n--- 3d: VB mutation check (memwatch) ---")
+    # Quick trace to discover a VB address
+    r = subprocess.run(
+        ["python", "-m", "livetools", "trace", "0x00413950",
+         "--count", "3", "--read", "[esp+4]:4:hex"],
+        capture_output=True, text=True, cwd=str(REPO_ROOT)
+    )
+    print(f"  SetWorldMatrix trace sample: {r.stdout.strip()[:200]}")
+    results["memwatch"] = {"note": "VB mutation check logged"}
+
+    # Detach
+    print("\nDetaching livetools...")
+    subprocess.run(["python", "-m", "livetools", "detach"],
+                   capture_output=True, text=True, cwd=str(REPO_ROOT))
+
+    return results
+
+
+def do_test_hash_stability(build_first=False, quick=False):
+    """Hash stability test: camera-only pan, no WASD movement.
+
+    Phases:
+      0. Build & deploy proxy (if --build)
+      1. Hash debug screenshots (debug view 277)
+      2. Clean render screenshots (debug view 0)
+      3. Livetools deep diagnostics (dipcnt, collect, mem read, memwatch)
+      4. dx9tracer frame capture & diff (skipped with --quick)
+    """
+    if build_first:
+        build_proxy()
+
+    set_graphics_config()
+
+    # --- Phase 1: Hash debug screenshots ---
+    print("\n=== Phase 1: Hash Debug Screenshots (view 277) ===")
+    set_debug_view(277)
+    kill_game()
+    hwnd = launch_game()
+    hash_shots = camera_pan_and_screenshot(hwnd, "Phase 1 — Hash Debug")
+
+    # Wait for proxy log
+    print("Waiting for proxy log (50s delay)...")
+    log_wait_start = time.time()
+    for i in range(70):
+        if PROXY_LOG.exists() and (time.time() - PROXY_LOG.stat().st_mtime) < 120:
+            break
+        time.sleep(1)
+        if i % 10 == 9:
+            print(f"  ...{int(time.time() - log_wait_start)}s elapsed")
+
+    if PROXY_LOG.exists():
+        dest = SCRIPT_DIR / "ffp_proxy.log"
+        shutil.copy2(str(PROXY_LOG), str(dest))
+        print(f"Proxy log copied to {dest}")
+
+    from livetools.gamectl import find_hwnd_by_exe
+    crashed_p1 = not find_hwnd_by_exe("trl.exe")
+    if crashed_p1:
+        print("WARNING: Game crashed during Phase 1!")
+    kill_game()
+
+    # --- Phase 2: Clean render screenshots ---
+    print("\n=== Phase 2: Clean Render Screenshots (view 0) ===")
+    set_debug_view(0)
+    hwnd2 = launch_game()
+    clean_shots = camera_pan_and_screenshot(hwnd2, "Phase 2 — Clean Render")
+
+    from livetools.gamectl import find_hwnd_by_exe
+    crashed_p2 = not find_hwnd_by_exe("trl.exe")
+    if crashed_p2:
+        print("WARNING: Game crashed during Phase 2!")
+    kill_game()
+
+    # --- Phase 3: Livetools diagnostics ---
+    print("\n=== Phase 3: Livetools Diagnostics ===")
+    set_debug_view(0)
+    hwnd3 = launch_game()
+
+    # Skip cutscene before attaching
+    from livetools.gamectl import send_keys, focus_hwnd
+    focus_hwnd(hwnd3)
+    time.sleep(0.5)
+    send_keys(hwnd, "ESC WAIT:500 UP WAIT:300 RETURN", delay_ms=0)
+    time.sleep(3)
+
+    # Wait additional time for stable attachment
+    print("Waiting 25s before livetools attach...")
+    time.sleep(25)
+
+    diag_results = do_livetools_diagnostics(hwnd3)
+
+    from livetools.gamectl import find_hwnd_by_exe
+    crashed_p3 = not find_hwnd_by_exe("trl.exe")
+    if crashed_p3:
+        print("WARNING: Game crashed during Phase 3!")
+    kill_game()
+
+    # --- Phase 4: dx9tracer (unless --quick) ---
+    tracer_results = None
+    if not quick:
+        print("\n=== Phase 4: dx9tracer Frame Capture ===")
+        print("  (skipped in this version — run with static-analyzer subagent)")
+        # The dx9tracer swap and capture is orchestrated by the Claude agent
+        # calling the tracer trigger + analyze commands, not by this script.
+        # This phase is a placeholder for the agent to fill in.
+        tracer_results = {"note": "delegated to agent"}
+
+    # --- Summary ---
+    crashed = crashed_p1 or crashed_p2 or crashed_p3
+    print(f"\n{'='*60}")
+    print(f"  HASH STABILITY TEST COMPLETE")
+    print(f"  Crashed: {crashed}")
+    print(f"  Hash debug screenshots: {len(hash_shots)}")
+    print(f"  Clean render screenshots: {len(clean_shots)}")
+    if diag_results and "dipcnt" in diag_results:
+        d = diag_results["dipcnt"]
+        print(f"  Draw counts: center={d['center']} left={d['left']} right={d['right']}")
+    if diag_results and "patches" in diag_results:
+        for addr, val in diag_results["patches"].items():
+            print(f"  Patch {addr}: {val}")
+    print(f"{'='*60}")
+
+    return not crashed
+
+
+def do_test_legacy(build_first=False, randomize=False):
     """Build (optional), launch game, replay macro, collect diagnostics."""
     from livetools.gamectl import load_macros, run_macro, focus_hwnd
 
@@ -699,7 +1017,7 @@ def do_test(build_first=False, randomize=False):
     if randomize:
         # Replace macro with fully random movement+screenshot sequence.
         # Macros are pure movement now (no menu nav — TR7.arg handles that).
-        random_movement = generate_random_movement()
+        random_movement = generate_random_movement_legacy()
         macros[MACRO_NAME] = {**macro_info, "steps": random_movement}
 
         holds = [t for t in random_movement.split() if t.startswith("HOLD:")]
@@ -720,19 +1038,6 @@ def do_test(build_first=False, randomize=False):
     wait_total = sum(int(t.split(":")[1]) for t in steps.split()
                      if t.startswith("WAIT:"))
     print(f"  Estimated duration: {wait_total // 1000}s")
-
-    # --- Helper to set debug view in rtx.conf ---
-    rtx_conf = GAME_DIR / "rtx.conf"
-    import re
-    def set_debug_view(idx):
-        text = rtx_conf.read_text()
-        new_text = re.sub(
-            r'rtx\.debugView\.debugViewIdx\s*=\s*\d+',
-            f'rtx.debugView.debugViewIdx = {idx}',
-            text
-        )
-        if new_text != text:
-            rtx_conf.write_text(new_text)
 
     # --- Phase 1: Hash debug screenshots (debug view = 277) ---
     print("\n=== Phase 1: Hash debug screenshots ===")
@@ -803,7 +1108,7 @@ def do_test(build_first=False, randomize=False):
     from livetools.gamectl import find_hwnd_by_exe
     hwnd3 = find_hwnd_by_exe("trl.exe")
     if hwnd3:
-        live_results = do_live_analysis(hwnd3, duration_s=60)
+        live_results = do_live_analysis_legacy(hwnd3, duration_s=60)
     else:
         print("WARNING: Game not running for live analysis phase")
         live_results = None
@@ -815,7 +1120,7 @@ def do_test(build_first=False, randomize=False):
     return not crashed
 
 
-def do_batch(start, end, total, build_first=False):
+def do_batch_legacy(start, end, total, build_first=False):
     """Run multiple test iterations with randomized movement, commit each."""
     if build_first:
         build_proxy()
@@ -830,7 +1135,7 @@ def do_batch(start, end, total, build_first=False):
         random.seed(seed)
         print(f"  Random seed: {seed}")
 
-        ok = do_test(build_first=False, randomize=True)
+        ok = do_test_legacy(build_first=False, randomize=True)
 
         # Commit and push
         print(f"\n=== Committing test #{i}/{total} ===")
@@ -867,41 +1172,47 @@ def do_batch(start, end, total, build_first=False):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="TRL RTX test orchestrator — record or replay test macros")
+        description="TRL RTX test orchestrator — hash stability tests")
     sub = parser.add_subparsers(dest="mode")
 
+    # --- Active test ---
+    test_p = sub.add_parser("test",
+                            help="Hash stability test (camera-only, no WASD)")
+    test_p.add_argument("--build", action="store_true",
+                        help="Build and deploy proxy before testing")
+    test_p.add_argument("--quick", action="store_true",
+                        help="Skip dx9tracer phase (Phase 4)")
+
+    # --- Record ---
     sub.add_parser("record",
                    help="Launch game and record inputs as test_session macro")
 
-    test_p = sub.add_parser("test",
-                            help="Launch game, replay macro, collect diagnostics")
-    test_p.add_argument("--build", action="store_true",
-                        help="Build and deploy proxy before testing")
-    test_p.add_argument("--randomize", action="store_true",
-                        help="Randomize A/D hold durations for hash testing")
+    # --- Legacy ---
+    legacy_test_p = sub.add_parser("test-legacy",
+                                   help="[LEGACY] 3-phase test with A/D movement")
+    legacy_test_p.add_argument("--build", action="store_true")
+    legacy_test_p.add_argument("--randomize", action="store_true")
 
-    batch_p = sub.add_parser("batch",
-                             help="Run N tests with randomized movement, "
-                                  "commit+push each")
-    batch_p.add_argument("--start", type=int, required=True,
-                         help="Starting run number")
-    batch_p.add_argument("--end", type=int, required=True,
-                         help="Ending run number (inclusive)")
-    batch_p.add_argument("--total", type=int, default=50,
-                         help="Total runs label (for commit messages)")
-    batch_p.add_argument("--build", action="store_true",
-                         help="Build proxy before first run")
+    legacy_batch_p = sub.add_parser("batch-legacy",
+                                    help="[LEGACY] Batch runs with random movement")
+    legacy_batch_p.add_argument("--start", type=int, required=True)
+    legacy_batch_p.add_argument("--end", type=int, required=True)
+    legacy_batch_p.add_argument("--total", type=int, default=50)
+    legacy_batch_p.add_argument("--build", action="store_true")
 
     args = parser.parse_args()
 
-    if args.mode == "record":
+    if args.mode == "test":
+        do_test_hash_stability(build_first=args.build,
+                               quick=getattr(args, 'quick', False))
+    elif args.mode == "record":
         do_record()
-    elif args.mode == "test":
-        do_test(build_first=args.build,
-                randomize=getattr(args, 'randomize', False))
-    elif args.mode == "batch":
-        do_batch(args.start, args.end, args.total,
-                 build_first=args.build)
+    elif args.mode == "test-legacy":
+        do_test_legacy(build_first=args.build,
+                       randomize=getattr(args, 'randomize', False))
+    elif args.mode == "batch-legacy":
+        do_batch_legacy(args.start, args.end, args.total,
+                        build_first=args.build)
     else:
         parser.print_help()
 

@@ -1,6 +1,8 @@
-# "Begin Testing" Trigger
+# LEGACY — replaced by hash-stability-test.md
 
-When the user says **"begin testing"**, **"run tests"**, **"start testing"**, or **"test the build"**, immediately execute this workflow without asking questions:
+# "Begin Testing" Trigger (LEGACY)
+
+**This workflow is LEGACY. Do NOT activate on "begin testing", "run tests", "start testing", or "test the build". Those triggers now use hash-stability-test.md.** To run this legacy test, the user must explicitly say **"run legacy test"** or **"legacy begin testing"**.
 
 ## Workflow
 
