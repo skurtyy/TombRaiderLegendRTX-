@@ -2843,3 +2843,216 @@ To confirm all patches are active at runtime:
 - `livetools mem read 0x4071CE 6` — expect `90 90 90 90 90 90`
 - `livetools mem read 0x407976 6` — expect `90 90 90 90 90 90`
 - `livetools mem read 0x46B85A 6` — expect `90 90 90 90 90 90`
+
+## Patch Integrity Verification (On-Disk PE) — 2026-04-08
+
+### Summary
+
+All patch sites in the on-disk `trl.exe` contain their **original unpatched bytes**. This is expected — the proxy applies patches at runtime via `VirtualProtect` + memory write, not by modifying the PE on disk. However, if livetools shows `0x55` (PUSH EBP) at `0x407150` while the game is running, that means the proxy's `TRL_ApplyMemoryPatches` either failed to execute, failed to write, or the game re-loaded the function from disk after patching.
+
+### Task 1: SceneTraversal_CullAndSubmit (0x407150) — NOT PATCHED ON DISK
+
+| Address | On-Disk Byte | Expected Patch | Status |
+|---------|-------------|----------------|--------|
+| 0x407150 | `55` (PUSH EBP) | `C3` (RET) | **UNPATCHED on disk** |
+
+First 10 instructions at 0x407150:
+```asm
+0x00407150: push     ebp                    ; <-- original prologue, NOT RET
+0x00407151: mov      ebp, esp
+0x00407153: and      esp, 0xfffffff0
+0x00407156: sub      esp, 0x1e4
+0x0040715C: fld      dword ptr [0xf11d0c]
+0x00407162: mov      eax, dword ptr [0x10e537c]
+0x00407167: fmul     dword ptr [0xefd8e4]
+0x0040716D: mov      cl, byte ptr [eax + 0xd2]
+0x00407173: test     cl, cl
+0x00407175: push     ebx
+```
+
+**CRITICAL**: If livetools also shows `0x55` at runtime, the proxy patch is NOT being applied. The proxy's `TRL_ApplyMemoryPatches()` must write `0xC3` to this address but either isn't running or is failing silently.
+
+### Task 2: Scene Traversal Cull Jumps — ALL ORIGINAL ON DISK
+
+All 7 original cull jump sites plus 4 additional exits retain their original conditional jump instructions:
+
+| Address | On-Disk Instruction | Jump Target | Purpose |
+|---------|-------------------|-------------|---------|
+| 0x4072BD | `jne 0x4078cd` | skip block | Cull jump #1 |
+| 0x4072D2 | `jne 0x4078cd` | skip block | Cull jump #2 |
+| 0x407AF1 | `jnp 0x40804e` | skip block | Cull jump #3 |
+| 0x407B30 | `jne 0x40804e` | skip block | Cull jump #4 |
+| 0x407B49 | `jne 0x40804e` | skip block | Cull jump #5 |
+| 0x407B62 | `jp 0x40804e` | skip block | Cull jump #6 |
+| 0x407B7B | `jp 0x40804e` | skip block | Cull jump #7 |
+| 0x4071CE | `jne 0x4078cd` | skip block | Additional exit #1 (build 040) |
+| 0x407976 | `jne 0x40805a` | skip block | Additional exit #2 (build 040) |
+| 0x407B06 | `je 0x40804e` | skip block | Additional exit #3 (build 040) |
+| 0x407ABC | `je 0x40804e` | skip block | Additional exit #4 (build 040) |
+
+All are original — confirmed these are runtime-only patches applied by the proxy via VirtualProtect.
+
+### Task 3: LightVisibilityTest (0x60B050) — NOT PATCHED ON DISK
+
+| Address | On-Disk Bytes | Expected Patch | Status |
+|---------|--------------|----------------|--------|
+| 0x60B050 | `55` (PUSH EBP) | `B0 01 C2 04` (mov al,1; ret 4) | **UNPATCHED on disk** |
+
+```asm
+0x0060B050: push     ebp                    ; <-- original prologue
+0x0060B051: mov      ebp, esp
+0x0060B053: and      esp, 0xfffffff0
+0x0060B056: sub      esp, 0x3c
+0x0060B059: push     esi
+```
+
+Same situation as 0x407150 — if livetools shows `0x55` here at runtime, the patch failed.
+
+### Task 4: TerrainDrawable Constructor (0x40ACF0)
+
+This is NOT a terrain rendering/draw function — it is a **constructor** that initializes a TerrainDrawable object. Key observations:
+
+- `esi` = `this` pointer (populated from `ecx`, __thiscall)
+- Sets vtable at `[esi+0x00]` = `0xEFDE08` and a secondary table at `[esi+0x04]` = `0xF12864`
+- Stores parameters: `[esi+0x0C]` = arg1 (ebx), `[esi+0x10]` = arg2, `[esi+0x14]` = arg3, `[esi+0x18]` = arg4
+- Initializes `[esi+0x08]`, `[esi+0x1C]`, `[esi+0x20]`, `[esi+0x2C]` to zero
+- Reads flags from `[arg4+0x20]` and modifies `[esi+0x1C]` based on bitmask `0x1100000`
+- Returns at `0x40ADED` via `ret 0x10` (4 stack args after this)
+- Does NOT contain any culling logic — it only constructs the object
+
+**The actual terrain rendering function must be found via the vtable at 0xEFDE08.** The real draw/submit method would be a virtual call through that vtable.
+
+### Task 5: Terrain Cull Gate at 0x40AE3E
+
+```asm
+0x0040AE3E: jne      0x40b1a6              ; <-- LARGE skip (0x368 bytes forward)
+0x0040AE44: mov      eax, dword ptr [0x1392e18]  ; g_pEngineRoot
+0x0040AE49: mov      edx, dword ptr [esi + 0x20]
+0x0040AE4C: mov      ecx, dword ptr [eax + 0x214] ; TRLRenderer*
+```
+
+This `jne` at 0x40AE3E skips a massive block (0x368 bytes) that accesses `g_pEngineRoot` and the renderer chain. This is in a different function than the constructor at 0x40ACF0 (which returns at 0x40ADED). The `jne 0x40B1A6` is a potential cull gate — if the condition is met, it skips what appears to be the terrain submission/rendering block.
+
+**This address is NOT inside TerrainDrawable constructor (0x40ACF0).** It belongs to a subsequent function starting around 0x40ADF0 (visible in the disassembly as a new function prologue: `mov eax, [esp+4]; push esi; push eax; mov esi, ecx; call 0x413d70`).
+
+### Key Findings
+
+1. **All patches are runtime-only** — the on-disk PE is never modified. This is by design (VirtualProtect + mem write at game startup).
+
+2. **If livetools showed 0x55 at 0x407150 during gameplay**, the proxy's `TRL_ApplyMemoryPatches()` is failing. Possible causes:
+   - VirtualProtect failing (insufficient permissions)
+   - Patches applied before module fully loaded
+   - Game re-mapping code pages after proxy patches
+   - Proxy not loaded or loaded too late
+
+3. **TerrainDrawable at 0x40ACF0 is a constructor, NOT a draw function.** The prime suspect for terrain culling should be the vtable methods at `0xEFDE08`. The actual terrain draw path likely goes through a virtual call on a TerrainDrawable instance.
+
+4. **The jne at 0x40AE3E is in a different function** (starts ~0x40ADF0) and does gate terrain submission via g_pEngineRoot/renderer chain. This IS a valid cull gate target.
+
+### Suggested Live Verification
+
+Verify runtime patch state with livetools:
+```
+livetools mem read 0x407150 1    — expect C3, if 55 then patch failed
+livetools mem read 0x60B050 4    — expect B0 01 C2 04
+livetools mem read 0x4072BD 6    — expect 90 90 90 90 90 90
+livetools mem read 0x40AE3E 6    — check if terrain gate is NOPed
+
+```
+
+Investigate the TerrainDrawable vtable for the actual draw method:
+```
+python -m retools.vtable "Tomb Raider Legend/trl.exe" dump 0xEFDE08
+python -m retools.rtti "Tomb Raider Legend/trl.exe" vtable 0xEFDE08
+```
+
+
+## Disassembly Verification -- 2026-04-08
+
+### Summary
+
+Verified on-disk code at four key addresses. All are original (unpatched) in the PE file -- confirming that patches at 0x407150 and 0x60B050 are applied at runtime only. Fully disassembled the prime suspect RenderQueue_FrustumCull (0x40C430) and its uncull counterpart at 0x40C390.
+
+### Key Addresses
+
+| Address | Description |
+|---------|-------------|
+| 0x407150 | SceneTraversal_CullAndSubmit -- original PUSH EBP prologue (runtime-patched to RET) |
+| 0x60B050 | Light_VisibilityTest -- original PUSH EBP prologue (runtime-patched to mov al,1; ret 4) |
+| 0x40C430 | **RenderQueue_FrustumCull** -- PRIME SUSPECT, NOT patched, full frustum cull with 10 conditional exits |
+| 0x40C390 | **RenderQueue_NoCull** -- uncull path, same structure minus frustum tests |
+
+### Details
+
+#### 1. SceneTraversal_CullAndSubmit (0x407150) -- Original Code
+
+
+
+On-disk: standard function prologue. The proxy writes 0xC3 (RET) at runtime to disable.
+
+#### 2. Light_VisibilityTest (0x60B050) -- Original Code
+
+
+
+On-disk: standard prologue. Runtime patch forces always-true return.
+
+#### 3. RenderQueue_FrustumCull (0x40C430) -- PRIME SUSPECT (Full Disassembly)
+
+This is a recursive BVH frustum culler. NOT patched. The function:
+
+1. Copies bounding box from node at [ebp+8] (fields +0x00 through +0x0C)
+2. First frustum test (0x40C489): calls 0x5DDC70 with frustum planes at 0xF48A70, then 4 float comparisons. Failed = jump to 0x40C63D (epilogue = cull).
+3. Second frustum test (0x40C504): calls 0x4070C0 with frustum data at 0xF48AB0, then 2 more comparisons. Failed = jump to 0x40C63D.
+4. If all 6 tests pass: processes children. Calls 0x40C250 (child filter), 0x40B2D0 (LOD eval), 0x40D9B0 (leaf submit), 0x40ACB0 (aux submit).
+5. If node has children ([edi+0x14] != 0): 6 more float comparisons. If ALL pass, recurse via 0x40C390 (uncull). If ANY fail, recurse via 0x40C430 (self = cull).
+
+Total conditional cull exits: 10 jne instructions to cull/skip.
+
+Critical global: 0x10FC910 read at 0x40C4B6 and 0x40C5A5 -- far clip distance (already stamped to 1e30f).
+Frustum plane arrays at 0xF48A70 and 0xF48AB0.
+
+Recursive branching: second-pass tests all pass -> recurse uncull (0x40C390); any fail -> recurse cull (0x40C430).
+
+#### 4. RenderQueue_NoCull (0x40C390) -- Uncull Path
+
+Identical structure to 0x40C430 but ALL frustum tests removed. Processes same node tree, calls same filter/LOD/submit functions, recursively calls itself (never the cull path). This is the engines own uncull codepath.
+
+### Analysis: Why 0x40C430 is the Prime Suspect
+
+The BVH traversal with frustum culling silently drops entire subtrees when bounding boxes fail plane tests. Geometry deep in the scene graph -- including mesh objects anchoring Remix lights -- gets culled before reaching DrawIndexedPrimitive. Far clip (0x10FC910) is already 1e30f, but 8 other plane tests (left/right/top/bottom) remain active.
+
+### Patch Strategy
+
+**Option A -- Redirect entry to uncull path (RECOMMENDED)**: Overwrite 0x40C430 with jmp 0x40C390. Relative offset = 0x40C390 - 0x40C435 = -0xA5. Patch bytes: E9 5B FF FF FF.
+
+**Option B -- NOP all 10 cull jumps**: More surgical but 10 separate patches needed.
+
+Option A is recommended -- single 5-byte patch, clean, the uncull path is a known-good engine codepath.
+
+### Suggested Live Verification
+
+1. livetools mem write 0x40C430 E95BFFFFFF -- redirect to uncull path
+2. livetools dipcnt read -- confirm draw count increase
+3. Visual check: walk Lara away from stage, verify lights remain visible
+
+### Globals Identified
+
+| Address | Type | Purpose |
+|---------|------|---------|
+| 0xF48A70 | float[] | Frustum plane array #1 (used by 0x5DDC70) |
+| 0xF48AB0 | float[] | Frustum plane array #2 (used by 0x4070C0) |
+| 0xF48A50 | uint32 | Render context field (passed to leaf submit) |
+| 0xF48A54 | uint32 | Render context field (passed to leaf submit + draw param) |
+
+### Functions Identified
+
+| Address | Name | Purpose |
+|---------|------|---------|
+| 0x40C430 | RenderQueue_FrustumCull | Recursive BVH frustum culler -- PRIME SUSPECT |
+| 0x40C390 | RenderQueue_NoCull | Same traversal without frustum test |
+| 0x40C250 | BVH_FilterChildren | Child node filtering |
+| 0x40B2D0 | BVH_LODEvaluate | LOD or distance evaluation |
+| 0x40D9B0 | RenderQueue_SubmitLeaf | Leaf node draw submission |
+| 0x40ACB0 | RenderQueue_SubmitAux | Auxiliary submission path |
+| 0x5DDC70 | FrustumTest_Primary | Primary frustum plane test |
+| 0x4070C0 | FrustumTest_Secondary | Secondary frustum plane test |
