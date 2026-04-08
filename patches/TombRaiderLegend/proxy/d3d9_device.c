@@ -168,6 +168,19 @@ extern void log_floats_dec(const char *prefix, float *data, unsigned int count);
  * through to MeshSubmit. */
 #define TRL_MESH_CULL_FLAG_JNE_ADDR 0x0046C33E
 
+/* Layer 3 frustum culler: RenderQueue_FrustumCull (0x40C430) performs
+ * recursive bounding-volume frustum tests AFTER sector/mesh submission.
+ * Objects outside the camera frustum are culled here even when Layers 1+2
+ * are fully patched. Redirect to RenderQueue_DirectDispatch (0x40C390)
+ * which has the same signature but skips all frustum math. */
+#define TRL_FRUSTUM_CULLER_ADDR      0x0040C430
+#define TRL_DIRECT_DISPATCH_ADDR     0x0040C390
+
+/* _level writers: two instructions set the far-clip global at 0x10FC910
+ * each frame, overwriting our BeginScene stamp. NOP both so 1e30 persists. */
+#define TRL_LEVEL_WRITER_1_ADDR      0x0046CCB4  /* scene setup: mov [0x10FC910], ecx */
+#define TRL_LEVEL_WRITER_2_ADDR      0x004E6DFA  /* camera setup: mov [0x10FC910], ecx */
+
 /* VP inverse cache: only recompute when camera moves more than this */
 #define VP_CHANGE_THRESHOLD     1e-4f
 /* World matrix quantization grid */
@@ -3606,6 +3619,41 @@ static void TRL_ApplyMemoryPatches(WrappedDevice *self) {
         }
     }
     log_str("  NOPed mesh eviction: SectorEviction x2 + ObjectTracker_Evict\r\n");
+
+    /* ---- Layer 3: Render queue frustum culler ----
+     *
+     * RenderQueue_FrustumCull (0x40C430) tests bounding volumes against the
+     * camera frustum. The far-clip test uses _level (0x10FC910). With _level
+     * stamped to 1e30 in BeginScene, far-clip never triggers. The remaining
+     * tests (near/side/behind) keep GPU load sane by culling backface geometry.
+     *
+     * NOTE: Full redirect to DirectDispatch (0x40C390) was tested but caused
+     * VK_ERROR_DEVICE_LOST — too many draw calls overwhelmed the GPU. */
+
+    /* NOP _level writers: two 6-byte MOV instructions overwrite the far-clip
+     * global at 0x10FC910 each frame, replacing our 1e30 stamp with the game's
+     * real far clip value. NOP both so objects at any distance survive. */
+    {
+        unsigned char *p;
+        int noped = 0;
+        p = (unsigned char *)TRL_LEVEL_WRITER_1_ADDR;
+        if (VirtualProtect(p, 6, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            p[0]=0x90; p[1]=0x90; p[2]=0x90;
+            p[3]=0x90; p[4]=0x90; p[5]=0x90;
+            VirtualProtect(p, 6, oldProtect, &oldProtect);
+            noped++;
+        }
+        p = (unsigned char *)TRL_LEVEL_WRITER_2_ADDR;
+        if (VirtualProtect(p, 6, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            p[0]=0x90; p[1]=0x90; p[2]=0x90;
+            p[3]=0x90; p[4]=0x90; p[5]=0x90;
+            VirtualProtect(p, 6, oldProtect, &oldProtect);
+            noped++;
+        }
+        log_str("  NOPed _level writers: ");
+        log_int("", noped);
+        log_str("/2 (0x46CCB4 + 0x4E6DFA)\r\n");
+    }
 
 }
 

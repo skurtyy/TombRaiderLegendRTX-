@@ -93,8 +93,18 @@ tools/apitrace-*/
 # Autopatch diagnostic captures (large JSONL frame data, regenerated per run)
 autopatch/diagnostic_captures/*.jsonl
 
+# Large JSONL trace captures (regenerated per capture session)
+TRL traces/**/*.jsonl
+
+# Runtime proxy/tracer logs in test builds and traces
+TRL tests/**/ffp_proxy.log
+TRL traces/**/*.log
+
 # Game checkpoint files (binary, machine-specific)
 patches/*/*.dat
+
+# Python nested caches
+**/__pycache__/
 
 # Chat logs (personal, not project docs)
 chatgpt1.md

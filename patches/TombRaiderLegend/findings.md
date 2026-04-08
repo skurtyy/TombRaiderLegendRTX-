@@ -2505,3 +2505,248 @@ If sectors have type == 0, no patches will make them render. The sector type is 
    livetools mem read 0x1158564 4
    livetools mem read 0x11585C0 4
    ```
+
+## RenderQueue_FrustumCull (0x40C430) Deep Analysis — 2026-04-07
+
+### Summary
+
+`RenderQueue_FrustumCull` at 0x40C430 is a recursive frustum culler for the render queue scene tree. It tests each node's bounding sphere against two culling matrices (view frustum at 0xF48A70, secondary at 0xF48AB0) and the far-clip `_level` global at 0x10FC910. Nodes that pass ALL tests get dispatched; nodes fully inside the frustum recurse via `RenderQueue_DirectDispatch` (0x40C390) which skips all testing. The function can be safely redirected to 0x40C390 via a 5-byte JMP to bypass all frustum testing.
+
+### Key Addresses
+
+| Address | Description |
+|---------|-------------|
+| 0x40C430 | `RenderQueue_FrustumCull` — recursive frustum culler entry |
+| 0x40C390 | `RenderQueue_DirectDispatch` — no-test recursive dispatch |
+| 0x10FC910 | `_level` (g_farClipDistance) — far clip float used in frustum test |
+| 0x46CCB4 | Write to `_level` in function 0x46C4F0 (large scene setup, 1999 bytes) |
+| 0x4E6DFA | Write to `_level` in function 0x4E6DD0 (camera/view setup, 262 bytes) |
+| 0x40C90E | Caller: `Sector_SubmitObject` calls FrustumCull with object's node tree |
+| 0x40C631 | Caller: FrustumCull calls itself recursively (children that need testing) |
+
+### Task 1: RenderQueue_FrustumCull (0x40C430) Decompilation
+
+```c
+void __cdecl RenderQueue_FrustumCull(void *node, uint32_t shadowMask, uint32_t sectorMask)
+{
+    // 1. Extract bounding sphere: center xyz at node+0/+4/+8, radius at node+0xC
+    float cx = *(node+0), cy = *(node+4), cz = *(node+8), radius = *(node+0xC);
+
+    // 2. Transform center through view matrix at 0xF48A70
+    float result[4];
+    fcn_005ddc70(&result, 0xF48A70, &center);  // matrix * point
+
+    // 3. EARLY RETURN #1: outer frustum rejection (6 conditions)
+    //    Tests transformed coords against -radius and _level+radius
+    if (result.x <= -radius) return;           // 0x40C4B0: jne 0x40C63D
+    if (result.x >= _level + radius) return;   // 0x40C4C9: jne 0x40C63D (uses _level)
+    if (result.y <= -radius) return;           // 0x40C4DC: jne 0x40C63D
+    if (result.z <= -radius) return;           // 0x40C4EF: jne 0x40C63D
+
+    // 4. Transform through secondary matrix at 0xF48AB0
+    fcn_004070c0(&result2, 0xF48AB0, &center);
+
+    // 5. EARLY RETURN #2: secondary frustum rejection (2 conditions)
+    if (result2[0] <= -radius) return;         // 0x40C519: jne 0x40C63D
+    if (result2[3] <= -radius) return;         // 0x40C52C: jne 0x40C63D
+
+    // 6. Process sector/shadow masks
+    sectorMask = (sectorMask != 0) ? func_0x40C250(sectorMask) : 0;
+    shadowMask = (shadowMask != 0) ? func_0x40B2D0(shadowMask) : shadowMask;
+
+    // 7. Check child count at node+0x14
+    float childCount = *(node + 0x14);
+
+    if (childCount == 0.0) {
+        // LEAF NODE: submit directly
+        if (sectorMask != 0)
+            PostSector_AddToVisibilityMask(*(node+0x10), sectorMask, ...);
+        RenderQueue_InsertCommand(edi_reg);  // draw command
+        return;
+    }
+
+    // 8. FULLY-INSIDE TEST (6 more conditions, using +radius not -radius)
+    //    If ALL transformed coords > radius AND < _level-radius:
+    if (result.x > radius && result.x < _level - radius &&   // uses _level again
+        result.y > radius && result.z > radius &&
+        result2[0] > radius && result2[3] > radius)
+    {
+        // FULLY INSIDE: dispatch children WITHOUT testing
+        for (i = childCount-1; i >= 0; i--)
+            RenderQueue_DirectDispatch(children[i], shadowMask, sectorMask);  // 0x40C60D
+        return;
+    }
+
+    // 9. PARTIALLY INSIDE: recurse with testing on each child
+    for (i = childCount-1; i >= 0; i--)
+        RenderQueue_FrustumCull(children[i], shadowMask, sectorMask);  // 0x40C631
+}
+```
+
+**Early return paths (frustum rejection):**
+- 0x40C4B0: `jne 0x40C63D` — transformed X <= -radius
+- 0x40C4C9: `jne 0x40C63D` — transformed X >= `_level` + radius (far clip)
+- 0x40C4DC: `jne 0x40C63D` — transformed Y <= -radius
+- 0x40C4EF: `jne 0x40C63D` — transformed Z <= -radius
+- 0x40C519: `jne 0x40C63D` — secondary matrix result[0] <= -radius
+- 0x40C52C: `jne 0x40C63D` — secondary matrix result[3] <= -radius
+
+All 6 jump to 0x40C63D which is `pop edi; pop esi; pop ebx; mov esp,ebp; pop ebp; ret`.
+
+**The `_level` global** is used in TWO places within this function:
+1. 0x40C4B6: `fld dword ptr [0x10FC910]` — outer test: `_level + radius` as upper X bound
+2. 0x40C5A5: `fld dword ptr [0x10FC910]` — inner test: `_level - radius` for fully-inside check
+
+### Task 2: RenderQueue_DirectDispatch (0x40C390) Decompilation
+
+```c
+void __cdecl RenderQueue_DirectDispatch(void *node, uint32_t shadowMask, uint32_t sectorMask)
+{
+    // Process masks (same as FrustumCull post-test code)
+    sectorMask = (sectorMask != 0) ? func_0x40C250(sectorMask) : 0;
+    shadowMask = (shadowMask != 0) ? func_0x40B2D0(shadowMask) : shadowMask;
+
+    int childCount = *(node + 0x14);
+
+    if (childCount == 0) {
+        // LEAF: submit
+        if (sectorMask != 0)
+            PostSector_AddToVisibilityMask(*(node+0x10), sectorMask, ...);
+        RenderQueue_InsertCommand(edi_reg);
+        return;
+    }
+
+    // NON-LEAF: recurse into ALL children unconditionally
+    for (i = childCount-1; i >= 0; i--)
+        RenderQueue_DirectDispatch(children[i], shadowMask, sectorMask);
+}
+```
+
+**Verification:**
+- Same signature: `void __cdecl (void*, uint32_t, uint32_t)` -- confirmed by funcinfo (cdecl, 0 stack args on ret)
+- Handles both leaf AND non-leaf nodes: leaf submits directly, non-leaf recurses
+- NO frustum testing at all -- pure tree traversal and submission
+- Callees are a proper subset of FrustumCull's callees (5 vs 8 -- missing the matrix transform and the self-recursive call)
+
+### Task 3: Who Writes to `_level` (0x10FC910)
+
+Two write sites found:
+
+**Write #1: 0x46CCB4** in function 0x46C4F0 (large scene setup, 1999 bytes)
+```asm
+0x46CCB4: mov dword ptr [0x10fc910], ecx   ; 6 bytes: 89 0D 10 C9 0F 01
+```
+This is near the end of a large function (0x46C4F0..0x46CCBF) that calls `RenderQueue_Dispatch` (0x40C930) and scene traversal functions. ECX holds a computed value at this point.
+
+**Write #2: 0x4E6DFA** in function 0x4E6DD0 (camera/view setup, 262 bytes)
+```asm
+0x4E6DF7: mov ecx, dword ptr [ebp + 0x10]  ; load 3rd argument
+0x4E6DFA: mov dword ptr [0x10fc910], ecx   ; 6 bytes: 89 0D 10 C9 0F 01
+```
+This function (`fcn_004E6DD0`) sets up the culling view matrices and camera position globals (0x10FC660..0x10FC8DC). It receives the `_level` value as its 3rd argument (`arg_10h`) and stores it directly. This is the **primary setter** -- it's the camera/view setup function that prepares the culling coordinate system.
+
+**Decompiled 0x4E6DD0:**
+```c
+void __cdecl fcn_004E6DD0(int32_t cameraPtr, int32_t viewDataPtr, int32_t levelFarClip)
+{
+    int matrix = *(viewDataPtr + 8);
+    _level = levelFarClip;                    // <-- THE WRITE
+    // Sets up 8 camera position globals at 0x10FC660..0x10FC67C
+    // Sets up 4 values at 0x10FC8D0..0x10FC8DC
+    // Calls matrix setup functions
+    fcn_0048E480(0x10FC660, *(cameraPtr + 0x6c));
+    fcn_0048E100(0x10FC660);
+    fcn_0048E450(0x10FC660);
+    fcn_004031B0(0x10FC840, 0x10FC800);
+}
+```
+
+**NOP instructions for write sites:**
+| Address | Bytes to NOP | Instruction |
+|---------|-------------|-------------|
+| 0x46CCB4 | `89 0D 10 C9 0F 01` (6 bytes) | `mov [0x10FC910], ecx` |
+| 0x4E6DFA | `89 0D 10 C9 0F 01` (6 bytes) | `mov [0x10FC910], ecx` |
+
+### Task 4: Who Calls 0x40C430
+
+Two call sites:
+1. **0x40C90E** — `Sector_SubmitObject` at 0x40C8A0. Sets up matrices, builds lighting mask, then `RenderQueue_FrustumCull(*(objectEntry+0x44), shadowMask, sectorMask)`. This is the **entry point** from the object submission pipeline.
+2. **0x40C631** — Self-recursive call within `RenderQueue_FrustumCull` itself (for children that are partially inside the frustum and need individual testing).
+
+### Task 5: JMP Redirect Safety Analysis
+
+**Proposed patch:** Replace first 5 bytes at 0x40C430 with `E9 <rel32>` jumping to 0x40C390.
+
+**Original bytes at 0x40C430:**
+```
+55              push ebp
+8B EC           mov ebp, esp
+83 E4 F0        and esp, 0xFFFFFFF0
+```
+First 5 bytes: `55 8B EC 83 E4` — this is `push ebp; mov ebp, esp; and esp, ...` (the AND is 3 bytes but we'd overwrite into it).
+
+**JMP offset calculation:**
+- From 0x40C430, a `JMP rel32` targets = 0x40C430 + 5 + offset
+- Target 0x40C390 = 0x40C430 + 5 + offset → offset = 0x40C390 - 0x40C435 = -0xA5 = 0xFFFFFF5B
+- Patch bytes: `E9 5B FF FF FF`
+
+**Safety checklist:**
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Same calling convention | YES | Both are `__cdecl`, both `ret` with no stack cleanup |
+| Same arguments | YES | Both take `(void* node, uint32_t shadowMask, uint32_t sectorMask)` |
+| Tree traversal preserved | YES | DirectDispatch recurses into all children unconditionally |
+| Leaf handling preserved | YES | Both submit leaf nodes via PostSector_AddToVisibilityMask + RenderQueue_InsertCommand |
+| Register setup needed | NO | Both read args from stack (`[ebp+8]`, `[ebp+0xC]`, `[ebp+0x10]`). JMP before frame setup means 0x40C390 builds its own frame. |
+| Stack alignment | OK | Both do `and esp, 0xFFFFFFF0` independently |
+| EDI register | CONCERN | Both functions use `unaff_EDI` (unanalyzed EDI) for `RenderQueue_InsertCommand`. Since EDI is caller-saved and set up by the caller before the call at 0x40C90E, and the JMP preserves all registers, this is safe. |
+
+**VERDICT: SAFE.** The JMP redirect is safe because:
+1. 0x40C390 is a complete, self-contained function with its own prologue
+2. The JMP at 0x40C430 executes BEFORE any stack frame is set up, so the stack is identical to what a direct call to 0x40C390 would see
+3. Both functions use identical argument layout from the stack
+4. DirectDispatch handles the full tree (leaf + non-leaf) without any testing
+5. All register state is preserved through a JMP (unlike CALL, no return address pushed — but since 0x40C430's RET will return to the original caller, and 0x40C390 also has RET, the JMP effectively turns 0x40C430 into a trampoline)
+
+**Wait — critical detail:** A `JMP` at the entry point means the `RET` inside 0x40C390 will return directly to 0x40C430's caller. This is correct behavior because no stack frame has been created yet at the JMP point. The return address on the stack is still the original caller's return address.
+
+### Patch Specification
+
+```
+Address: 0x40C430
+Original: 55 8B EC 83 E4
+Patch:    E9 5B FF FF FF    (JMP 0x40C390)
+Effect:   All frustum testing bypassed; every node dispatched unconditionally
+```
+
+### Alternative: Write _level to disable far-clip only
+
+Instead of bypassing all frustum testing, you could set `_level` to a huge value (e.g., `float.max` = 0x7F7FFFFF) to disable the far-clip distance check while preserving the near-plane and secondary matrix tests. NOP both write sites (0x46CCB4 and 0x4E6DFA, 6 bytes each) and then write a large float to 0x10FC910 at runtime:
+
+```
+livetools mem write 0x10FC910 FFFF7F7F    (3.4028235e+38)
+```
+
+This is a less aggressive approach than the full JMP bypass.
+
+### Suggested Live Verification
+
+```bash
+# Option A: Full bypass (JMP redirect)
+livetools mem write 0x40C430 E95BFFFFFF
+
+# Option B: Disable far-clip only (NOP writes + set huge _level)
+livetools mem write 0x46CCB4 909090909090
+livetools mem write 0x4E6DFA 909090909090
+livetools mem write 0x10FC910 FFFF7F7F
+
+# Verify patches held
+livetools mem read 0x40C430 5
+livetools mem read 0x10FC910 4 --as float32
+
+# Monitor draw count change
+livetools dipcnt on
+# wait, move camera
+livetools dipcnt read
+```
