@@ -3,7 +3,7 @@
 This directory contains every test build from the project, committed in order. Each build has a `SUMMARY.md`, proxy source snapshot, and screenshots (where applicable).
 
 **Live status docs:**
-- [`docs/status/WHITEBOARD.md`](../docs/status/WHITEBOARD.md) — culling layer map (22 layers), build history narrative, decision tree, key addresses
+- [`docs/status/WHITEBOARD.md`](../docs/status/WHITEBOARD.md) — culling layer map (30 layers), build history narrative, decision tree, key addresses
 - [`docs/status/TEST_STATUS.md`](../docs/status/TEST_STATUS.md) — build-by-build pass/fail table, what's done, what remains
 
 ---

@@ -10,7 +10,7 @@ Live project tracking — updated at the end of each development phase.
 
 | File | Description |
 |------|-------------|
-| [`status/WHITEBOARD.md`](status/WHITEBOARD.md) | Live status: 22-layer culling map, build history narrative, decision tree, key addresses |
+| [`status/WHITEBOARD.md`](status/WHITEBOARD.md) | Live status: 30-layer culling map, build history narrative, decision tree, key addresses |
 | [`status/TEST_STATUS.md`](status/TEST_STATUS.md) | Build-by-build pass/fail table, what's done, what remains |
 
 ---
@@ -34,6 +34,7 @@ Deep-dive analysis reports and experiment logs.
 | [`trl-ffp-ghidra-caps-gate.md`](research/trl-ffp-ghidra-caps-gate.md) | Ghidra caps gate analysis |
 | [`deep-research-report.md`](research/deep-research-report.md) | General deep research findings |
 | [`TR7_RTX_Remix_Research.md`](research/TR7_RTX_Remix_Research.md) | TR7 engine research applicable to TRL |
+| [`TERRAIN_ANALYSIS.md`](research/TERRAIN_ANALYSIS.md) | Terrain rendering pipeline: TerrainDrawable, 3-layer culling architecture, Layer 3 frustum culler at 0x40C430 |
 
 ---
 

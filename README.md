@@ -147,7 +147,7 @@ PASS builds include `miracle` in the folder name. Every build â€” pass or fail â
 
 | Document | Description |
 |----------|-------------|
-| [`docs/status/WHITEBOARD.md`](docs/status/WHITEBOARD.md) | Live status: 22-layer culling map, build history narrative, decision tree, key addresses |
+| [`docs/status/WHITEBOARD.md`](docs/status/WHITEBOARD.md) | Live status: 30-layer culling map, build history narrative, decision tree, key addresses |
 | [`docs/status/TEST_STATUS.md`](docs/status/TEST_STATUS.md) | Build-by-build pass/fail results and open items |
 | [`docs/reference/TECHNICAL_BUILD_DOCUMENT.md`](docs/reference/TECHNICAL_BUILD_DOCUMENT.md) | Complete technical spec: proxy design, VS register layout, game memory patches, build steps |
 | [`docs/`](docs/) | Full documentation index |

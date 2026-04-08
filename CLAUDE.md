@@ -5,7 +5,7 @@
 - **Project:** Vibe Reverse Engineering toolkit — D3D9 FFP proxy DLL + RE tools for RTX Remix compatibility
 - **Repo:** github.com/skurtyyskirts/TombRaiderLegendRTX-
 - **Owner:** Jeffrey (skurtyyskirts), Temple TX
-- **Builds completed:** 001–044 (116 commits)
+- **Builds completed:** 001–068 (003–015, 034, 043, 048–063 not preserved)
 
 ## DLL Chain
 ```
@@ -13,7 +13,7 @@ NvRemixLauncher32.exe → trl.exe → dxwrapper.dll → d3d9.dll (FFP proxy) →
 ```
 
 ## Architecture Summary
-TRL renders exclusively through programmable vertex shaders. RTX Remix requires Fixed-Function Pipeline (FFP). The proxy intercepts D3D9 calls, reconstructs W/V/P matrices from VS constants, and feeds them to Remix through FFP calls — so Remix sees TRL as a native FFP game. The proxy also patches 22 identified culling layers at runtime via `VirtualProtect` + memory write.
+TRL renders exclusively through programmable vertex shaders. RTX Remix requires Fixed-Function Pipeline (FFP). The proxy intercepts D3D9 calls, reconstructs W/V/P matrices from VS constants, and feeds them to Remix through FFP calls — so Remix sees TRL as a native FFP game. The proxy also patches 30 identified culling layers at runtime via `VirtualProtect` + memory write.
 
 ### VS Constant Register Layout (TRL-specific)
 ```
@@ -25,7 +25,8 @@ c48+:    Skinning bone matrices (3 regs/bone)
 Note: View and Projection are SEPARATE registers, not a fused ViewProj.
 
 ### Proxy Method Hooks
-| Method | What it does ||--------|-------------|
+| Method | What it does |
+|--------|-------------|
 | `SetVertexShaderConstantF` | Captures VS constants into per-draw register bank |
 | `DrawIndexedPrimitive` | Reconstructs W/V/P matrices, calls `SetTransform`, chains to Remix |
 | `SetRenderState` | Intercepts `D3DRS_CULLMODE` — forces `D3DCULL_NONE` |
@@ -67,9 +68,10 @@ rtx.uiTextures = 0x03016D2FBBF5C65D, 0x2164293A60D148AC
 ### DONE
 - FFP proxy DLL builds and chains to Remix
 - Transform pipeline (View/Proj/World from VS constants)
-- Asset hash stability (static + moving camera) — **UNRESOLVED** (incorrectly marked as resolved; debug geometry view always shows changing hash colors; never verified with actual Toolkit mesh replacements)
-- Automated test pipeline (two-phase: hash debug + clean render, randomized movement)
-- All 22 identified culling layers investigated; 20 patched
+- Automated test pipeline (two-phase: hash debug + clean render, camera pan)
+- All 30 identified culling layers investigated; 28 patched (all 3 light pipeline gates re-enabled and confirmed crash-free, build 068)
+- SHORT4→FLOAT3 VB expansion with content fingerprint cache
+- ProcessPendingRemovals crash fix at 0xEE88AD
 
 ### TWO REMAINING BLOCKERS
 
@@ -80,26 +82,29 @@ rtx.uiTextures = 0x03016D2FBBF5C65D, 0x2164293A60D148AC
 **Root cause reframed (build 038):** The "red light at distance" in builds 019–037 was actually the fallback light (`rtx.fallbackLightRadiance`). With neutral white fallback, BOTH stage lights gone at distance. Problem is geometry submission, NOT light culling.
 
 **What's been exhausted:**
-- All 11 conditional exits in `SceneTraversal_CullAndSubmit` (0x407150) NOPed — draw counts rose to ~190K, still fails
+- All 11 conditional exits in `SceneTraversal_CullAndSubmit` (0x407150) NOPed — draw counts ~190K, still fails
 - Sector/portal visibility NOPed (65× draw count increase)
 - Light_VisibilityTest force-true, light frustum NOPs, sector light count gate
 - Far clip stamped to 1e30f, frustum threshold to -1e30f
 - Camera-sector proximity filter NOPed
 - All 3 identified render paths patched: (1) RenderVisibleSectors→RenderSector, (2) SceneTraversal wrapper→0x407150, (3) moveable object loop at 0x40E2C0
-**PRIME SUSPECT:** `TerrainDrawable (0x40ACF0)` / `TERRAIN_DrawUnits` — a SEPARATE terrain rendering path with its own culling. Never decompiled. Never patched.
+- TerrainDrawable decompiled (build 2026-04-08): `0x40ACF0` is a constructor, real draw at `0x40AE20`; shares same 3-layer sector architecture as regular meshes
+- All 30 culling layers patched and confirmed active simultaneously (build 068, no crash)
+
+**PRIME SUSPECT:** `RenderQueue_FrustumCull` at `0x40C430` — Layer 3 recursive bounding-volume frustum culler operating AFTER all patched submission gates. Drops objects outside view frustum before DrawIndexedPrimitive. Redirect entry to `0x40C390` (uncull path) to bypass.
 
 **PASS criteria:** Both red and green stage lights visible in all 3 clean render screenshots, lights shift as Lara strafes, hashes stable, no crash.
 
-#### Blocker 2: Hash Instability (UNRESOLVED)
+#### Blocker 2: Hash Instability (UNVERIFIED)
 
-**Symptom:** The geometry debug view always shows changing hash colors. This was incorrectly marked as resolved based on a theory that generation hash flickering is cosmetic and asset hashes are stable — but this was never verified with actual RTX Toolkit mesh replacements.
+**Symptom:** The geometry debug view shows changing hash colors. This was incorrectly marked as resolved — generation hash flickering was assumed cosmetic but never proven so with actual RTX Toolkit mesh replacements.
 
 **What's unverified:**
-- No Toolkit mesh replacement has ever been tested to confirm asset hashes are truly stable
-- Generation hash includes positions and flickers with camera — assumed cosmetic, never proven
-- The claim that `indices,texcoords,geometrydescriptor` produces stable asset hashes has not been validated end-to-end
+- No Toolkit mesh replacement has been tested end-to-end to confirm asset hashes are stable
+- Generation hash includes positions and flickers with camera — assumed cosmetic, not proven
+- The `indices,texcoords,geometrydescriptor` rule has not been validated with actual mod replacements
 
-## 22-Layer Culling Map
+## 30-Layer Culling Map
 
 | # | Layer | Address(es) | Patched? | Build |
 |---|-------|------------|----------|-------|
@@ -124,7 +129,16 @@ rtx.uiTextures = 0x03016D2FBBF5C65D, 0x2164293A60D148AC
 | 19 | Additional SceneTraversal exits (4×) | 0x4071CE, 0x407976, 0x407B06, 0x407ABC | Yes — all NOPed | 040 |
 | 20 | Far clip distance global | 0x10FC910 | Yes — 1e30f per BeginScene | 041 |
 | 21 | Camera-sector proximity filter | 0x46B85A | Yes — NOPed | 044 |
-| 22 | **Terrain rendering path** | TerrainDrawable (0x40ACF0) / TERRAIN_DrawUnits | **UNEXPLORED — PRIME SUSPECT** | — |
+| 22 | Terrain rendering path | TerrainDrawable (0x40ACF0) / TERRAIN_DrawUnits | Yes — terrain flag gate NOPed (0x40AE3E) | 045–063 |
+| 23 | Null-check guard | 0xEDF9E3 | Yes — trampoline patched | 045–063 |
+| 24 | ProcessPendingRemovals stale field | FUN_00ProcessPendingRemovals | Yes — patched (resolved crash at 0xEE88AD) | 045–063 |
+| 25 | MeshSubmit visibility gate | MeshSubmit_VisibilityGate (0x454AB0) | Yes — `xor eax,eax; ret` | 045–063 |
+| 26 | Sector already-rendered skip | 0x46B7F2 | Yes — NOPed | 045–063 |
+| 27 | Post-sector bitmask/distance culls | 0x40E30F, 0x40E3B0 | Yes — NOPed | 045–063 |
+| 28 | Stream unload gate | 0x415C51 | Yes — NOPed | 045–063 |
+| 29 | Mesh eviction | SectorEviction (×2) + ObjectTracker_Evict | Yes — all 3 NOPed | 045–063 |
+| 30 | **Render queue frustum culler** | **0x40C430 (RenderQueue_FrustumCull)** | **NOT PATCHED — PRIME SUSPECT** | — |
+
 ## Known Dead Ends — DO NOT RETRY
 
 | # | Approach | Why It Failed | Build |
@@ -135,17 +149,24 @@ rtx.uiTextures = 0x03016D2FBBF5C65D, 0x2164293A60D148AC
 | 4 | All 11 conditional exits in 0x407150 | Draw counts 190K but anchors still vanish | 040 |
 | 5 | Config flag at 0x01075BE0 ("disable extra static light culling") | No code xrefs, not connected to light collection | 032 |
 | 6 | Pending-render flag NOPs (0x603832, 0x60E30D) | No effect on bottleneck | 025 |
+| 7 | LightVolume_UpdateVisibility state NOPs (5 addrs) | Patches not confirmed in proxy log — silent VirtualProtect failure | 026 |
+| 8 | D3DPOOL_MANAGED + per-frame VB flush | Flush too aggressive (512 VB creates/frame); D3DPOOL_MANAGED is correct, flush is not | 045 |
+| 9 | Null VS for ALL draws (content fingerprint cache) | Breaks view-space geometry — FLOAT3 view-space positions render at extreme scale | 046 |
+| 10 | Remove `positions` from asset hash | Catastrophic hash collision — all geometry gets same hash; positions required | 047 |
+| 11 | Draw cache disabled (`DRAW_CACHE_ENABLED 0`) | No effect — cache only replays 3 draws, stale pointer concern unfounded | 066 |
+| 12 | Remove VP inverse epsilon threshold | No effect — VP changes are large enough to always trigger recalculation | 067 |
 
 ## What Has NOT Been Tried
 
 | Idea | Why It Matters | Difficulty |
 |------|---------------|------------|
-| **Investigate TerrainDrawable (0x40ACF0)** | Prime suspect: separate terrain render path with own culling | Medium — static analysis |
-| dx9tracer frame capture at near vs far | Definitively shows which draw calls disappear | Medium — setup tracer |
-| Find Lara's character mesh hash | Always drawn — anchor lights to her hash guarantees visibility | Easy |
-| Patch terrain culling path | TerrainDrawable likely has distance/sector culling | Hard |
-| LOD alpha fade at 0x446580 | 10 callers, may fade geometry at distance | Medium |
-| Investigate 0x41F96A visibility check | Same threshold, different code path | Low priority |
+| **Patch RenderQueue_FrustumCull (0x40C430)** | Prime suspect: Layer 3 recursive frustum culler — redirect entry to 0x40C390 (uncull path) | Easy — single `mem write` at runtime |
+| dx9tracer frame diff: near stage vs far | Definitively shows which draw calls (and hashes) disappear — confirms geometry is never submitted | Medium |
+| Livetools memory search for anchor hashes | Determine if anchor mesh objects exist in scene graph at all — distinguishes "not loaded" from "not drawn" | Easy |
+| Anchor to Lara's always-drawn mesh | Find Lara's body hash — she's always rendered; anchor lights to her guarantees visibility | Easy |
+| Investigate per-object flags at [obj+8] | Bits 0x01/0x02/0x04 may independently gate draw submission (proxy only NOPs `test bit 0x10`) | Medium |
+| LOD alpha fade at 0x446580 | 10 callers — may fade geometry invisible at distance | Medium |
+| Draw call replay in proxy | Record anchor DIP calls on first frame; replay every subsequent frame unconditionally | Hard |
 
 ## Repository Layout
 
@@ -154,11 +175,12 @@ rtx.uiTextures = 0x03016D2FBBF5C65D, 0x2164293A60D148AC
 | `proxy/` | D3D9 FFP proxy DLL source |
 | `retools/` | Offline static analysis — decompile, xrefs, CFG, RTTI, signatures |
 | `livetools/` | Live dynamic analysis — Frida-based tracing, breakpoints, memory r/w |
-| `graphics/directx/dx9/tracer/` | Full-frame D3D9 API capture and offline analysis || `autopatch/` | Autonomous hypothesis-test-patch loop |
+| `graphics/directx/dx9/tracer/` | Full-frame D3D9 API capture and offline analysis |
+| `autopatch/` | Autonomous hypothesis-test-patch loop |
 | `automation/` | Screenshot automation and test replay infrastructure |
 | `patches/TombRaiderLegend/` | Runtime patches applied by proxy |
 | `docs/` | Full documentation — research, reference, guides |
-| `docs/status/WHITEBOARD.md` | **Live status** — 22-layer culling map, build history, decision tree |
+| `docs/status/WHITEBOARD.md` | **Live status** — 30-layer culling map, build history, decision tree |
 | `docs/status/TEST_STATUS.md` | Build-by-build pass/fail results |
 | `TRL tests/` | Test build archive — every build with SUMMARY.md, screenshots, proxy log, source |
 | `TRL traces/` | Full-frame D3D9 API captures |
@@ -185,7 +207,8 @@ rtx.uiTextures = 0x03016D2FBBF5C65D, 0x2164293A60D148AC
 |-------|-------|
 | `*(renderCtx+0x220)` | Sector data base pointer |
 | `sector_data + N*0x684 + 0x664` | Native static light count for sector N |
-| `sector+0x1B0` | Per-sector light list count || `sector+0x1B8` | Per-sector light list array pointer |
+| `sector+0x1B0` | Per-sector light list count |
+| `sector+0x1B8` | Per-sector light list array pointer |
 | `sector+0x84`, `sector+0x94` | Fields gating light pass in RenderScene_Main |
 
 ## Tool Catalog
@@ -217,6 +240,7 @@ python -m autopatch
 
 Say **"begin testing"** to run the full automated pipeline.
 Say **"begin testing manually"** to launch and test yourself.
+
 ## Engineering Standards
 1. Every session: read CLAUDE.md, then CHANGELOG.md, then WHITEBOARD.md
 2. Log ALL findings to CHANGELOG.md with timestamps
