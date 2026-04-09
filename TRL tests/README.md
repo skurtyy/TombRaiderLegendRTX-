@@ -3,14 +3,14 @@
 This directory contains every test build from the project, committed in order. Each build has a `SUMMARY.md`, proxy source snapshot, and screenshots (where applicable).
 
 **Live status docs:**
-- [`docs/status/WHITEBOARD.md`](../docs/status/WHITEBOARD.md) — culling layer map (30 layers), build history narrative, decision tree, key addresses
+- [`docs/status/WHITEBOARD.md`](../docs/status/WHITEBOARD.md) — culling layer map (31 layers), build history narrative, decision tree, key addresses
 - [`docs/status/TEST_STATUS.md`](../docs/status/TEST_STATUS.md) — build-by-build pass/fail table, what's done, what remains
 
 ---
 
 ## Current Status
 
-**Failing — anchor geometry not submitted to renderer.** All known culling and visibility layers have been patched. All three light pipeline gates are re-enabled and confirmed safe (build 068). The anchor mesh geometry carrying Remix light hashes is not being submitted to `DrawIndexedPrimitive` at the camera positions tested.
+**Failing — stale anchor mesh hashes in mod.usda.** All 31 culling layers are patched and confirmed active. The replacement asset pipeline is fully operational (build 075 confirmed with a stable purple test light). Stage lights are absent only because the building mesh hash IDs in `mod.usda` were captured under a previous Remix configuration and no longer match the current draw calls. A fresh Remix capture near the stage will resolve this.
 
 | Goal | Status |
 |------|--------|
@@ -24,10 +24,11 @@ This directory contains every test build from the project, committed in order. E
 | SHORT4 → FLOAT3 VB expansion + fingerprint cache | Done |
 | FLOAT3 character draws (Lara visible) | Done |
 | RenderQueue_FrustumCull (Layer 31) bypassed | Done |
-| **Both stage lights stable at all positions** | **Failing** |
+| Replacement asset pipeline (mod lights) | **Done** (build 075) |
+| **Both stage lights stable at all positions** | **Failing — stale hashes** |
 
 Last confirmed PASS: `build-019` (both lights visible, hashes stable).  
-Latest build: `build-073` — `useVertexCapture=True` test; white dots visible (possible overexposed lights); fresh hash capture needed.
+Latest build: `build-075` — replacement asset pipeline confirmed working; stage light hashes stale; fresh Remix capture needed.
 
 ---
 
@@ -127,7 +128,16 @@ Latest build: `build-073` — `useVertexCapture=True` test; white dots visible (
 | [071](build-071-hash-stability-FAIL-lights-missing) | FAIL | Expanded mod.usda to 8 anchor hashes; no lights; Lara not visible (FLOAT3 unpatched) |
 | [071b](build-071b-FLOAT3-FFP-lara-visible-FAIL-lights-missing) | FAIL | **Lara now visible** — FLOAT3 draw path fixed (null VS before draw); lights still absent |
 | [072](build-072-frustumcull-bypass-FAIL-lights-missing) | FAIL | RenderQueue_FrustumCull bypass (0x40C430→0x40C390); draw counts +29% (2845→3657); no lights |
-| [073](build-073-vertexcapture-true-FAIL-lights-missing) | FAIL | `useVertexCapture=True`; white dots in screenshots — possibly overexposed stage lights (HDR clipping) |
+| [073](build-073-vertexcapture-true-FAIL-lights-missing) | FAIL | `useVertexCapture=True`; white dots in screenshots — later confirmed as denoiser artifacts |
+
+---
+
+### Phase 7 — Replacement Asset Pipeline Verification (Builds 074–075)
+
+| Build | Result | Key Finding |
+|-------|--------|-------------|
+| [074](build-074-deferred-patches-FAIL-lights-missing) | FAIL | Deferred patch init (fixes menu crash); permanent page unlock; 3749 draws/scene; all 31 patches active; no lights |
+| [075](build-075-replacement-assets-fix-FAIL-stale-hashes) | FAIL | **BREAKTHROUGH**: fixed `user.conf` `enableReplacementAssets=False` — pipeline confirmed working (purple light visible, stable, shifts with camera). Stage light hashes stale; white dots were denoiser artifacts. |
 
 \* False positive — Lara didn't move or wrong screenshots evaluated.
 

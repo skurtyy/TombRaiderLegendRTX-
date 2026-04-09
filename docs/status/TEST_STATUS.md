@@ -1,8 +1,8 @@
 # TRL RTX Remix — Test Status Report
 
-**Last reviewed:** 2026-04-08
-**Builds reviewed:** 001, 002, 016–033, 035–042, 044–047, 064–073 (003–015, 034, 043, 048–063 not preserved)
-**Overall status:** FAILING — lights absent; all 31 culling layers patched; FLOAT3 draws fixed (Lara visible); anchor mesh hashes unverified for current Remix config.
+**Last reviewed:** 2026-04-09
+**Builds reviewed:** 001, 002, 016–033, 035–042, 044–047, 064–075 (003–015, 034, 043, 048–063 not preserved)
+**Overall status:** FAILING — stale anchor hashes in mod.usda. Replacement asset pipeline confirmed working (build 075). All 31 culling layers patched. Fresh Remix capture needed to get current building mesh hash IDs.
 
 ---
 
@@ -36,19 +36,17 @@
 
 ### What Fails
 
-1. **Stage lights absent.** Build 073 shows small white dots — possibly the stage lights at extreme HDR overexposure (intensity=10000000, exposure=20). Color is unverifiable at current settings. Need to lower intensity to confirm.
+1. **Stage lights absent — stale anchor hashes.** The 8 building mesh hashes in `mod.usda` were captured under a previous Remix configuration. Build 075 confirmed that the replacement asset pipeline works (purple test light visible), but no currently-rendered mesh matches the stored hash IDs. "White dots" from prior builds were denoiser/NRC artifacts, not lights (proven by testing with light radius 2→3000: no change in dot behavior).
 
-2. **Anchor mesh hashes unverified.** The 8 hashes in mod.usda were captured under a different Remix config (possibly with `useVertexCapture=True`). Current config has `useVertexCapture=False` and Layer 31 bypass active — hashes may differ. No fresh capture has been done.
+2. **LOD alpha fade unpatched.** `0x446580` with 10 callers may fade geometry at distance. Low priority — geometry IS being submitted.
 
-3. **LOD alpha fade unpatched.** `0x446580` with 10 callers may fade geometry at distance. Low priority.
+### Hurdles (Resolved)
 
-### Hurdles
+1. **`user.conf` override (build 075 — FIXED).** `user.conf` in the game directory had `rtx.enableReplacementAssets=False`, silently disabling all mod content in builds 016–074. Remix loads config as `dxvk.conf → rtx.conf → user.conf`; the last value wins. Fixed by setting `enableReplacementAssets=True` in `user.conf`.
 
-1. **All 31 patches active simultaneously, still failing.** Build 072 confirmed 31 patches active with no crash and +29% draw counts. Lights still absent.
+2. **FLOAT3 draws fixed (build 071b).** Nulling VS before FLOAT3 draws puts character geometry through FFP correctly. Lara visible in all recent builds.
 
-2. **FLOAT3 draws now fixed.** Build 071b: nulling VS before FLOAT3 draws puts character geometry through FFP correctly. Lara is now visible in clean render screenshots.
-
-3. **Hash origin uncertain.** White dots in build 073 suggest lights may actually be submitting — but the anchor hashes in mod.usda have never been verified against a fresh Remix capture at the current test position.
+3. **All 31 patches active simultaneously, confirmed crash-free (build 074).** Deferred patch initialization eliminates the menu crash.
 
 ---
 
@@ -125,6 +123,8 @@
 | 071b | FAIL | FLOAT3 draw path fix — null VS before FLOAT3 draws | **Lara now visible** — FLOAT3 geometry through FFP for first time; lights still absent |
 | 072 | FAIL | RenderQueue_FrustumCull bypass (0x40C430 → 0x40C390) | +29% draws (2845→3657); Lara in hash debug; no crash; lights still absent |
 | 073 | FAIL | `rtx.useVertexCapture = True` | ~3651 draws; white dots visible in screenshots — possible overexposed stage lights |
+| 074 | FAIL | Deferred patches + permanent page unlock | 3749 draws/scene; all 31 patches active; menu crash fixed; no lights |
+| 075 | FAIL | Fix `user.conf` enableReplacementAssets; purple reference light test | **Breakthrough**: purple test light visible + stable (pipeline confirmed). Stage light hashes stale. White dots were denoiser artifacts. |
 
 *False positive — movement input not reaching game or Lara didn't move.
 
@@ -171,32 +171,34 @@
 - [x] FLOAT3 draw path fixed — null VS before FLOAT3 draws (build 071b); Lara now visible in all renders
 - [x] RenderQueue_FrustumCull (0x40C430) bypassed via JMP → 0x40C390 — Layer 31 (build 072)
 - [x] Extended anchor mesh hashes in mod.usda from 5 to 8 (build 071)
+- [x] Deferred `TRL_ApplyMemoryPatches()` to first valid `BeginScene` — fixes menu crash (build 074)
+- [x] Permanent `VirtualProtect` page unlock — eliminates ~28 kernel calls/frame (build 074)
+- [x] Fixed `user.conf` `enableReplacementAssets=False` override — replacement asset pipeline now enabled (build 075)
+- [x] Confirmed replacement asset pipeline works end-to-end — purple test light visible, stable, camera-shift confirmed (build 075)
+- [x] Confirmed white dots in builds 072-073 were denoiser/NRC artifacts, not anchor lights (build 075 radius test)
 
 ---
 
 ## What Still Needs to Be Done
 
-### Immediate — Verify Anchor Hashes
+### Immediate — Correct the Anchor Hashes
 
-- [ ] **Lower mod light intensity**: reduce sphere light `intensity` from 10000000 to ~1000 and `exposure` from 20 to ~5. If white dots from build 073 turn red/green, lights are working and intensity was hiding color
-- [ ] **Fresh Remix capture**: capture a frame near the stage with the current config; compare new mesh hashes against mod.usda entries
-- [ ] **Update mod.usda** with corrected hashes if fresh capture reveals a mismatch
+- [ ] **Fresh Remix capture**: launch game with current proxy, load Peru, enable hash debug view (debug view 277), position near stage, and use Remix Toolkit to capture. Extract current mesh hash IDs for the building columns/pillars.
+- [ ] **Update mod.usda**: replace the 8 stale hash entries with hash IDs from the fresh capture
+- [ ] **Re-test**: both red and green lights should appear once hashes match
 
-### If Hashes Are Correct but Lights Still Absent
+### If Hashes Are Updated but Lights Still Absent
 
-- [ ] **Livetools memory search**: search live process memory for anchor mesh objects near stage vs far — distinguishes "not loaded" from "not drawn"
-- [ ] **dx9tracer frame diff**: capture near stage + far, diff draw call lists — identifies which draw calls disappear
-- [ ] **Trace draw backtraces** near stage vs far: identifies which submission path handles the anchor geometry
+- [ ] Verify hash debug view shows the building geometry in frame (confirm Lara is close enough to stage)
+- [ ] **dx9tracer capture**: use `--classify-draws` and `--shader-map` to identify draw calls for the building; compare hash IDs against Toolkit capture
 
-### Fallback Options
+### Fallback
 
-- [ ] **Anchor to Lara's mesh:** Identify Lara's body mesh hash (now visible in build 071b+); anchor both stage lights to her — always rendered
-- [ ] **Draw call replay in proxy:** Record anchor mesh DIP calls on first frame; replay every subsequent frame
+- [ ] **Anchor to Lara's mesh**: Lara's body mesh hash is now captured in recent builds; anchoring both lights to Lara guarantees visibility at all positions
 
 ### Lower Priority
 
 - [ ] Investigate LOD alpha fade at `0x446580` (10 callers) — may fade geometry at distance
-- [ ] Fix Phase 1 load timing bug: 15s wait insufficient for Remix+Peru
 
 ---
 

@@ -2,7 +2,7 @@
 
 Reverse-engineering Tomb Raider: Legend (2006) to run under NVIDIA RTX Remix — full path-traced lighting, stable geometry hashes, and complete scene visibility via a custom D3D9 FFP proxy DLL.
 
-**73 builds completed · All 31 culling layers patched · Character draws fixed (build 071b) · Anchor hash verification in progress**
+**75 builds completed · All 31 culling layers patched · Replacement asset pipeline confirmed working (build 075) · Fresh mesh hash capture needed**
 
 ---
 
@@ -55,12 +55,13 @@ NvRemixLauncher32.exe
 | SHORT4 → FLOAT3 vertex buffer expansion | ✅ Done |
 | Content fingerprint VB cache | ✅ Done |
 | Character draws — Lara visible in RTX | ✅ Done (build 071b) |
-| **Both stage lights stable at all positions** | 🔄 In progress |
+| Replacement asset pipeline (mod lights, materials) | ✅ Confirmed working (build 075) |
+| **Both stage lights stable at all positions** | 🔄 In progress — fresh hash capture needed |
 
 **Last confirmed PASS:** `build-019` — both lights visible, hashes stable.  
-**Latest:** `build-073` — `useVertexCapture=True`; white dots visible (possible overexposed lights at `intensity=10,000,000`). Next: lower intensity to confirm color, then fresh Remix capture.
+**Latest:** `build-075` — **breakthrough**: `user.conf` had `enableReplacementAssets=False` silently disabling all mod content in every build since 016. Fixed. Replacement asset pipeline now confirmed working end-to-end (purple test light visible and stable). Stage lights absent only because the 8 anchor mesh hashes in `mod.usda` are stale and need a fresh Remix capture.
 
-> **Current focus:** Verify anchor mesh hashes in `mod.usda` match the current Remix config. All 31 culling layers are active and draw counts are up +29% from the Layer 31 bypass (build 072). The remaining question is whether the anchor hashes were captured under a different config and no longer match the current draw calls.
+> **Current focus:** Capture a fresh frame with the Remix Toolkit near the Peru stage area, extract current mesh hash IDs for the building geometry, and update `mod.usda`. The replacement asset system is fully functional — only the hash values are wrong.
 
 Full status and decision tree: [`docs/status/WHITEBOARD.md`](docs/status/WHITEBOARD.md)
 

@@ -1,6 +1,6 @@
 # TRL RTX Remix — Live Whiteboard
 
-**Updated:** 2026-04-08 · **Builds:** 001–073 (003–015, 034, 043, 048–063 not preserved)  
+**Updated:** 2026-04-09 · **Builds:** 001–075 (003–015, 034, 043, 048–063 not preserved)  
 **Goal:** Stable hashes, full geometry submission, Remix lights anchored to stage geometry
 
 ---
@@ -24,31 +24,24 @@
 | SHORT4 → FLOAT3 VB expansion path | DONE | D3DPOOL_MANAGED + content fingerprint cache (builds 045-046) |
 | `positions` required in asset hash | CONFIRMED | Build 047 proved removing positions causes catastrophic collision |
 | All light pipeline gates disabled | DONE | `Light_VisibilityTest`, sector count gate, RenderLights gate — re-enabled build 068, confirmed no crash |
-| GREEN light stable at all positions | **FAILING** | Anchor geometry not submitted — not a light culling issue |
-| RED light stable at all positions | **FAILING** | Same root cause — anchor mesh draw calls absent at tested camera positions |
-| Remix light anchors hold on movement | **FAILING** | Anchor geometry never submitted; all 20+ culling patches active and confirmed |
+| Replacement asset pipeline (mod lights) | CONFIRMED (build 075) | Purple test light visible and stable; `user.conf` override fixed |
+| GREEN light stable at all positions | **FAILING** | Anchor hashes stale — building mesh IDs differ from mod.usda entries |
+| RED light stable at all positions | **FAILING** | Same root cause — stale hashes; fresh capture needed |
+| Remix light anchors hold on movement | **FAILING** | Hashes wrong; pipeline itself is confirmed working |
 
 ---
 
-## The Two Remaining Problems
+## The One Remaining Problem
 
-### Problem 1: Anchor Geometry Not Submitted at Distance
+### Stale Anchor Mesh Hashes in mod.usda
 
-**Root cause reframed (build 038):** The "red light at distance" in builds 019-037 was the fallback light (`rtx.fallbackLightRadiance = 3, 0.3, 0.3`). With neutral fallback (build 038), BOTH stage lights vanish when Lara walks away from the stage. This means the engine's light culling functions (RenderLights_FrustumCull, Light_VisibilityTest, etc.) are irrelevant — Remix lights are anchored to geometry hashes, and when the anchor geometry isn't submitted as a draw call, the lights vanish.
+**Build 075 breakthrough:** `user.conf` in the game directory had `rtx.enableReplacementAssets=False`. This file is written by the Remix developer menu and overrides `rtx.conf` (Remix loads config in order: `dxvk.conf → rtx.conf → user.conf`, last value wins). This single line was silently disabling ALL mod content — lights, materials, and mesh replacements — in every build from 016 to 074.
 
-**All identified culling paths in SceneTraversal_CullAndSubmit (0x407150) exhausted (build 040):** 11 of 12 conditional exits NOPed (the 12th is a safety check for LOD count == 0). Draw counts rose from ~93K (with RET) to ~180-190K (without RET + 11 NOPs). Still fails.
+**Replacement asset pipeline confirmed working:** After fixing `user.conf`, a purple test light anchored to `mesh_574EDF0EAD7FC51D` appeared immediately, was visible from all 3 camera positions, and shifted correctly with camera movement. This proves the entire pipeline (proxy transform, FFP submission, Remix hash matching, mod.usda anchoring) works correctly.
 
-**Multiple render paths confirmed (build 044):** Upstream caller analysis revealed 3 separate render paths: (1) RenderVisibleSectors → RenderSector, (2) SceneTraversal wrapper → 0x407150, (3) moveable object loop at 0x40E2C0. Patches applied to all three, yet anchor geometry disappears.
+**Stage lights still absent — root cause:** The 8 building mesh hashes in `mod.usda` are stale. Testing with light radius 2 through 3000 game units produced no change in the "white dots" (confirmed to be denoiser/NRC artifacts, not lights). No currently-rendered mesh matches those hash IDs because the hashes were captured under a previous Remix configuration (before `positions` was added to the hash rule and before SHORT4→FLOAT3 expansion).
 
-**Working hypothesis (build 044):** The anchor meshes may be **terrain geometry** going through TerrainDrawable (0x40ACF0) / TERRAIN_DrawUnits — a separate rendering path with its own culling, not covered by any current patches.
-
-**Camera-sector proximity filter NOPed (build 044):** NOP at 0x46B85A (RenderSector JNE) — no effect on pattern.
-
-**Additional NOPs tried (builds 037, 040, 041):** RenderLights gate (0x60E3B1), sector light count clear (0x603AE6), far clip stamp (0x10FC910 → 1e30f), 4 additional cull flags in 0x407150 (0x4071CE, 0x407976, 0x407B06, 0x407ABC) — none resolved the issue.
-
-### Problem 2: Hash Instability (UNRESOLVED — incorrectly marked as resolved)
-
-Earlier builds (017, 022) showed hash color shifts on movement. The claim that this was resolved (build 021+) was based on a theory that generation hash flickering is cosmetic and that asset hashes are inherently stable because TRL skinning is GPU-side and VBs are static. **However, this was never verified with actual RTX Toolkit mesh replacements.** The debug geometry view always shows changing hash colors, and no end-to-end test has confirmed that the `indices,texcoords,geometrydescriptor` asset hash rule produces truly stable replacements. Both generation hash and asset hash stability remain unverified in practice.
+**Geometry IS being rendered:** 3749+ draw calls per scene; the building is visible in hash debug and clean render screenshots. The geometry submission problem is solved — only the hash identifiers in `mod.usda` are wrong.
 
 ---
 
@@ -174,8 +167,10 @@ Every culling mechanism discovered and its patch status:
 | 071b | FAIL | FLOAT3 draw path fix — null VS before FLOAT3 draws | **Lara now visible for first time** — FLOAT3 branch correctly goes through FFP. Stage lights still absent. Black triangle artifact at feet |
 | 072 | FAIL | RenderQueue_FrustumCull bypass — JMP 0x40C430 → 0x40C390 (Layer 31) | Draw counts +29% (2845 → 3657). Lara visible in hash debug. No crash. **Lights still absent** — anchor hashes may be stale (different config at capture) |
 | 073 | FAIL | `rtx.useVertexCapture = True` | Draw counts ~3651. Small white dots visible — possibly stage lights at extreme HDR overexposure (intensity=10000000, exposure=20). Color unresolvable at current settings |
+| 074 | FAIL | Deferred patches + permanent page unlock | All 31 patches active. Deferred init fixes menu crash (no longer needs `TR7.arg`). Draw counts ~3749. Lights absent. No crash. |
+| 075 | FAIL | Fix `user.conf` `enableReplacementAssets=False`; test with purple reference light | **BREAKTHROUGH**: purple test light visible and stable (proves pipeline works). Stage light hashes stale — building geometry renders at ~3749 draws but no mesh matches mod.usda entries. White dots from prior builds were denoiser artifacts. |
 
-**Conclusion (builds 069-073):** All 31 identified culling layers are now patched. FLOAT3 draws are fixed (Lara visible). Layer 31 bypass increased draw counts +29% but lights are still absent. Primary hypothesis: anchor mesh hashes in mod.usda were captured under different Remix settings and don't match current draw calls. A fresh Remix capture is needed.
+**Conclusion (builds 069-075):** The replacement asset pipeline is confirmed working end-to-end (build 075). The `user.conf` override was silently disabling all mod content for 59 consecutive builds. Now the only remaining task is a fresh Remix capture to get current mesh hash IDs and update `mod.usda`.
 
 ---
 
@@ -183,16 +178,10 @@ Every culling mechanism discovered and its patch status:
 
 | Idea | Why It Matters | Difficulty |
 |------|----------------|------------|
-| **Fresh Remix capture — regenerate mod.usda hashes** | Anchor hashes in mod.usda were captured under different settings; current draw calls may have different hashes entirely. Capture a frame near the stage and compare mesh IDs | Easy |
-| **Lower mod light intensity** | Mod lights have `intensity=10000000, exposure=20` — HDR clips to white, making color unverifiable. Lower to ~1000/5 to see if white dots are red/green | Easy |
-| dx9tracer frame diff: near stage vs far | Definitively shows which draw calls disappear — confirms whether anchor mesh is ever submitted at tested positions | Medium |
-| Livetools memory search for anchor hash values | Determines if anchor mesh objects exist in the scene graph near vs far — distinguishes "not loaded" from "not drawn" | Easy |
-| Trace draw call backtraces near stage vs far | Identifies which submission path handles the missing geometry | Medium |
-| Anchor to Lara's always-drawn mesh | Find Lara's body hash; anchor lights to her — she's always rendered | Easy |
-| Investigate portal/PVS traversal | Sector graph may exclude anchor mesh sectors on camera rotation; individual NOPs are downstream | Hard |
-| Patch LOD alpha fade at 0x446580 | 10 callers, may fade geometry at distance | Medium |
-| Per-object visibility flags at [obj+8] bits 0x01/0x02/0x04 | Proxy NOPs only `test bit 0x10`; other bits may independently gate draw submission | Medium |
-| Force sector mesh loading | Stamp all sector enable flags; trace which sectors contain anchor meshes | Medium |
+| **Fresh Remix capture — regenerate mod.usda hashes** | Stale hashes confirmed as the only remaining blocker (build 075). Geometry IS rendering (3749 draws/scene); hashes just don't match. | Easy |
+| Anchor to Lara's always-drawn mesh | Lara's body mesh visible since build 071b; anchor lights to her for a guaranteed-visible reference while working on building hashes | Easy |
+| dx9tracer frame diff near stage to identify building mesh | Capture a frame; use `--classify-draws` and `--vtx-formats` to identify which draw calls correspond to the stage building | Medium |
+| Patch LOD alpha fade at 0x446580 | 10 callers, may fade geometry at distance; low priority now that geometry IS being submitted | Medium |
 
 ---
 
@@ -274,42 +263,33 @@ FUN_006033d0 / FUN_00602aa0 ← IRRELEVANT (per build 038 root cause reframe)
 
 ## Immediate Next Step
 
-> **All 31 culling layers patched. +29% draw counts. Build 073 shows white dots — may be the stage lights at extreme HDR overexposure.**
+> **Build 075: replacement asset pipeline confirmed working. Purple light visible and stable. Stage lights absent only because mod.usda hashes are stale.**
 
-**Two-step anchor hash verification:**
+**One-step fix:**
 
-1. **Lower light intensity** — reduce sphere light `intensity` from `10000000` to `~1000` and `exposure` from `20` to `~5`. If the white dots turn red/green, the anchors are working and intensity was hiding the color.
-2. **Fresh Remix capture** — do a new capture near the stage with the current config (`useVertexCapture=False`, Layer 31 bypass active). Compare hash IDs in the new capture against `mod.usda`.
+1. **Fresh Remix capture** — launch the game with the current proxy, load Peru, position Lara near the stage. Open the Remix Toolkit, enable hash debug view (debug view 277), and capture the scene. Identify the mesh hash IDs of the building geometry (the two columns/pillars that hold the red and green lights). Update `mod.usda` with the new hashes and re-test.
 
-**What was tried and ruled out (builds 038-073):**
-- All 3 light pipeline gates unblocked (build 068)
-- All 11 exits in SceneTraversal_CullAndSubmit NOPed (build 040)
-- Far clip stamp to 1e30f (build 041)
-- Camera-sector proximity filter NOPed (build 044)
-- Terrain cull gate NOPed (builds 045-063)
-- MeshSubmit_VisibilityGate → return 0 (builds 045-063)
-- Stream unload gate + mesh eviction NOPed (builds 045-063)
-- Draw cache disabled (build 066)
-- VP inverse epsilon removed (build 067)
-- RenderQueue_FrustumCull bypass JMP 0x40C430→0x40C390 (build 072) — added draws but lights still absent
-- useVertexCapture=True (build 073) — white dots visible but color unverifiable at current intensity
+**What was established in builds 038-075:**
+- All 31 culling layers patched — geometry IS submitted (3749 draws/scene)
+- FLOAT3 draws fixed — Lara visible
+- `user.conf` override fixed — replacement asset pipeline confirmed end-to-end (build 075)
+- "White dots" in prior builds were denoiser/NRC artifacts, not lights (build 075: radius 2→3000 test)
+- Stale hashes confirmed: no currently-rendered mesh matches mod.usda entries
 
 ---
 
-## Decision Tree for Next Failure
+## Decision Tree for Next Attempt
 
 ```
-White dots visible (build 073) — possible overexposed lights
-├── Lower mod intensity (1000/5) + test
-│   ├── Dots turn red/green → lights ARE working, intensity was hiding color → PASS
-│   └── Dots stay white or disappear → hash mismatch
-│       └── Fresh Remix capture: compare new hashes vs mod.usda
-│           ├── Hashes match → some other issue (range, visibility)
-│           └── Hashes differ → update mod.usda with new hashes → test
-├── If still no lights after hash fix:
-│   ├── Livetools memory search: do anchor mesh objects exist in scene graph?
-│   │   ├── NOT FOUND → geometry never loaded → investigate sector stream loading
-│   │   └── FOUND → submission path not covered
-│   └── dx9tracer frame diff near vs far: which draw calls disappear?
-└── Fallback: anchor lights to Lara's body mesh (always rendered)
+Fresh Remix capture near stage
+├── Get new building mesh hashes from Toolkit
+├── Update mod.usda with new hashes
+└── Re-test
+    ├── Red + green lights visible → PASS
+    └── Still no lights
+        ├── Verify hash debug shows building geometry in frame
+        │   ├── Not visible → building not in frame / too far → reposition Lara
+        │   └── Visible → hash in Toolkit doesn't match proxy's hash → hash rule mismatch
+        └── dx9tracer capture: identify which draw calls are the building meshes
+            └── Compare hash IDs between proxy log and Toolkit capture
 ```

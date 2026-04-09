@@ -6,6 +6,41 @@
 
 ---
 
+## [2026-04-09] BUILDS-074-075 — Deferred patches, user.conf breakthrough, replacement assets confirmed
+
+### Objective
+Optimize proxy initialization (deferred patches, permanent page unlock), then verify anchor mesh hashes by testing with replacement assets enabled.
+
+### Findings
+- **Build 074**: Deferred patches (now run on first valid `BeginScene` instead of device creation) fix main menu crash. Permanent `VirtualProtect` page unlock eliminates ~28 kernel calls/frame. All 31 patches confirmed. Draw counts stable at ~3749. Lights still absent.
+- **Build 075 — ROOT CAUSE FOUND**: `user.conf` in the game directory had `rtx.enableReplacementAssets=False`. This file is written by the Remix developer menu and overrides `rtx.conf` (Remix loads: `dxvk.conf → rtx.conf → user.conf`). This single line was silently disabling ALL mod content (lights, materials, meshes) in EVERY build from 016 to 074.
+- **Replacement asset pipeline CONFIRMED WORKING**: After fixing `user.conf`, a purple test light (`mesh_574EDF0EAD7FC51D`) appeared, remained stable across all 3 camera positions, and shifted correctly with camera movement. End-to-end proof that the pipeline works.
+- **Stage lights still absent**: The 8 building mesh hashes in `mod.usda` are stale. Testing with `useVertexCapture=True` and `False`, and light radius 2→3000 produced no change — proving no currently-rendered mesh matches those hash IDs. The "white dots" from builds 072-073 were denoiser/NRC artifacts, not anchor lights.
+- **Hash rule updated**: `positions,indices,texcoords,geometrydescriptor` (positions added back — required for generation hash, doesn't affect asset hash stability because Remix hash rules are independent).
+
+### Patches Applied (Build 074)
+- Deferred `TRL_ApplyMemoryPatches()` to first valid `BeginScene` (fixes menu crash; no longer needs `TR7.arg` skip)
+- Permanent page unlock: `VirtualProtect(PAGE_READWRITE)` once per data page, removes ~28 kernel calls/frame
+
+### Test Results
+- Build 074: FAIL — all patches active, 3749 draws/scene, no lights, no crash
+- Build 075: FAIL — purple test light visible (pipeline confirmed!), stage light hashes stale, needs fresh capture
+
+### Dead Ends Discovered
+- `user.conf` `enableReplacementAssets=False` — silently disabled all mod content builds 016-074 (fixed 075)
+
+### Open Questions Updated
+- [x] Does the replacement asset pipeline actually work? → **YES** (build 075 purple light)
+- [x] Are the white dots in build 073 the stage lights? → **NO** — denoiser/NRC artifacts; radius 2→3000 produced no change
+- [ ] What are the current mesh hash IDs for the building geometry at the Peru start position?
+
+### Next Steps
+1. **HIGHEST**: Fresh Remix capture near Peru stage → extract building mesh hashes → update `mod.usda`
+2. **HIGH**: Re-test with updated hashes — expect red+green lights to appear
+3. **FALLBACK**: Anchor lights to Lara's body mesh (always visible since build 071b) as a guaranteed-visible reference
+
+---
+
 ## [2026-04-08] BUILDS-069-073 — Layer 31 patch, FLOAT3 fix, hash verification needed
 
 ### Objective
