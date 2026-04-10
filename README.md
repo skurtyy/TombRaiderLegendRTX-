@@ -1,5 +1,9 @@
 # Tomb Raider Legend — RTX Remix Port
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Platform: Windows x86](https://img.shields.io/badge/Platform-Windows%20x86-blue)
+![Game: TRL 2006](https://img.shields.io/badge/Game-Tomb%20Raider%3A%20Legend%20(2006)-red)
+
 Reverse-engineering Tomb Raider: Legend (2006) to run under NVIDIA RTX Remix — full path-traced lighting, stable geometry hashes, and complete scene visibility via a custom D3D9 FFP proxy DLL.
 
 **75 builds completed · All 31 culling layers patched · Replacement asset pipeline confirmed working (build 075) · Fresh mesh hash capture needed**
@@ -183,10 +187,10 @@ PASS builds include `miracle` in the folder name. Every build — pass or fail �
 
 ---
 
-## New Session Checklist
+## Developer Workflow
 
 1. Read [`docs/status/WHITEBOARD.md`](docs/status/WHITEBOARD.md) — current culling map, build history, decision tree
 2. Read [`docs/status/TEST_STATUS.md`](docs/status/TEST_STATUS.md) — build-by-build results and open items
 3. Check the latest build folder in [`TRL tests/`](TRL%20tests/) and its `SUMMARY.md`
 4. Read `patches/TombRaiderLegend/kb.h` — accumulated address map and struct layouts
-5. Say **"begin testing"** to Claude to run the full automated test pipeline
+5. Run `python patches/TombRaiderLegend/run.py test --build` to execute the full automated test pipeline

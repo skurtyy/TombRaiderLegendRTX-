@@ -1,8 +1,8 @@
-# CHANGELOG.md — TombRaiderLegendRTX Session Log
+# Changelog
 
-> **Purpose:** Cross-session memory for Claude Code. Every session reads this first, every session updates it.
-> **Format:** `[YYYY-MM-DD HH:MM] LABEL — Summary` followed by findings, patches, test results, dead ends.
-> **Full build history:** See `docs/status/WHITEBOARD.md` for the complete build narrative.
+Development log for the TRL RTX Remix port. Updated at the end of every session.
+Format: `[YYYY-MM-DD HH:MM] LABEL — Summary` followed by findings, patches, test results, dead ends.
+Full build history: [`docs/status/WHITEBOARD.md`](docs/status/WHITEBOARD.md)
 
 ---
 
@@ -161,28 +161,3 @@ Decompile TerrainDrawable at 0x40ACF0, cross-reference with cdcEngine decompilat
 - [ ] What is Lara's character mesh hash? (now visible in build 071b+ — guaranteed anchor candidate)
 - [ ] Does LOD alpha fade (0x446580) affect post-sector-patch visibility?
 
----
-
-## Session Template
-
-```
-## [YYYY-MM-DD HH:MM] LABEL — One-line summary
-
-### Objective
-What this session set out to do.
-
-### Findings
-- Finding 1 (with addresses if applicable)
-- Finding 2
-
-### Patches Applied
-- Address: 0xNNNNNN — description of patch
-### Test Results
-- Build NNN: PASS/FAIL — description
-
-### Dead Ends Discovered
-- Approach → why it failed (add to cumulative table)
-
-### Next Steps
-- What the next session should tackle
-```

@@ -10,7 +10,7 @@ Live project tracking — updated at the end of each development phase.
 
 | File | Description |
 |------|-------------|
-| [`status/WHITEBOARD.md`](status/WHITEBOARD.md) | Live status: 30-layer culling map, build history narrative, decision tree, key addresses |
+| [`status/WHITEBOARD.md`](status/WHITEBOARD.md) | Live status: 31-layer culling map, build history narrative, decision tree, key addresses |
 | [`status/TEST_STATUS.md`](status/TEST_STATUS.md) | Build-by-build pass/fail table, what's done, what remains |
 
 ---
