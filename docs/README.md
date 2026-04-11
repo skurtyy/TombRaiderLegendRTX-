@@ -2,6 +2,8 @@
 
 Technical documentation for the TRL RTX Remix project, organized by type.
 
+For the main project overview, see the [root README](../README.md).
+
 ---
 
 ## Status
@@ -10,7 +12,7 @@ Live project tracking — updated at the end of each development phase.
 
 | File | Description |
 |------|-------------|
-| [`status/WHITEBOARD.md`](status/WHITEBOARD.md) | Live status: 31-layer culling map, build history narrative, decision tree, key addresses |
+| [`status/WHITEBOARD.md`](status/WHITEBOARD.md) | **Live status**: 31-layer culling map, full build history narrative, decision tree, key addresses |
 | [`status/TEST_STATUS.md`](status/TEST_STATUS.md) | Build-by-build pass/fail table, what's done, what remains |
 
 ---
@@ -82,8 +84,8 @@ Historical artifacts from earlier sessions. Not actively maintained.
 
 ```
 archive/
-├── sessions/       # Session handoffs (VIBREVERSE-*, FIRSTVIBECODE-*, early handoff docs)
-├── prompts/        # AI prompts and skill files from early development
-├── specs/          # Early design specs
-└── compass/        # Compass AI assistant analysis outputs
+├── sessions/             # Session handoffs from early development
+├── prompts/              # AI prompts and skill files from early development
+├── compass/              # Compass AI assistant analysis outputs
+└── Combined_Research_Docs.md  # Consolidated early research dump
 ```

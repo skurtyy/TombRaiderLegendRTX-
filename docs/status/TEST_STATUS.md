@@ -1,6 +1,6 @@
 # TRL RTX Remix — Test Status Report
 
-**Last reviewed:** 2026-04-09
+**Last reviewed:** 2026-04-11
 **Builds reviewed:** 001, 002, 016–033, 035–042, 044–047, 064–075 (003–015, 034, 043, 048–063 not preserved)
 **Overall status:** FAILING — stale anchor hashes in mod.usda. Replacement asset pipeline confirmed working (build 075). All 31 culling layers patched. Fresh Remix capture needed to get current building mesh hash IDs.
 

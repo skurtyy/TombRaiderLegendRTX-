@@ -1,6 +1,6 @@
 # TRL RTX Remix — Live Whiteboard
 
-**Updated:** 2026-04-10 · **Builds:** 001–075 (003–015, 034, 043, 048–063 not preserved)  
+**Updated:** 2026-04-11 · **Builds:** 001–075 (003–015, 034, 043, 048–063 not preserved)  
 **Goal:** Stable hashes, full geometry submission, Remix lights anchored to stage geometry
 
 ---

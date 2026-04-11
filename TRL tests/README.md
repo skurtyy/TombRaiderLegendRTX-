@@ -27,8 +27,8 @@ This directory contains every test build from the project, committed in order. E
 | Replacement asset pipeline (mod lights) | **Done** (build 075) |
 | **Both stage lights stable at all positions** | **Failing — stale hashes** |
 
-Last confirmed PASS: `build-019` (both lights visible, hashes stable).  
-Latest build: `build-075` — replacement asset pipeline confirmed working; stage light hashes stale; fresh Remix capture needed.
+**No full PASS yet** — `build-019` appeared to pass but was later confirmed a false positive (wrong screenshots evaluated; see build 020).  
+Latest build: `build-075` — **replacement asset pipeline confirmed working end-to-end** (purple test light visible and stable). Stage lights absent only because anchor mesh hashes in `mod.usda` are stale and need a fresh Remix capture.
 
 ---
 
