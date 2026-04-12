@@ -64,11 +64,9 @@ NvRemixLauncher32.exe
 | Replacement asset pipeline (mod lights, materials) | ✅ Confirmed end-to-end | 075 |
 | **Both stage lights stable at all positions** | 🔄 In progress — fresh hash capture needed | — |
 
-**Current status:** No full stage-light PASS yet — `build-019` showed both lights but was later confirmed a false positive (wrong screenshots evaluated; see build 020).
+**Build 075 — breakthrough:** `user.conf` had `rtx.enableReplacementAssets=False`, silently disabling all mod content in every build from 016 through 074. Fixed. A purple test light anchored to `mesh_574EDF0EAD7FC51D` appeared immediately, held stable across all 3 camera positions, and shifted correctly with camera movement — confirming the entire pipeline (proxy transform → FFP submission → Remix hash matching → mod.usda anchoring) works end-to-end.
 
-**Build 075 — breakthrough:** `user.conf` had `enableReplacementAssets=False`, silently disabling all mod content in every build since 016. Fixed. A purple test light anchored to `mesh_574EDF0EAD7FC51D` appeared immediately, held stable across all 3 camera positions, and shifted correctly with camera movement — confirming the entire pipeline works end-to-end.
-
-> **Current focus:** Stage lights are absent only because the 8 anchor mesh hashes in `mod.usda` are stale (captured under a previous Remix config). All geometry is rendering (3749 draw calls/scene). Next step: capture a fresh frame with the Remix Toolkit near the Peru stage, extract current building mesh hash IDs, and update `mod.usda`.
+> **Current blocker:** Stage lights are absent only because the 8 anchor mesh hashes in `mod.usda` are stale. They were captured under a previous Remix configuration; no currently-rendered mesh matches those IDs. All geometry is rendering (3749 draw calls/scene). **Next step:** capture a fresh frame with the Remix Toolkit near the Peru stage, extract the current building mesh hash IDs, and update `mod.usda`.
 
 Full status and decision tree: [`docs/status/WHITEBOARD.md`](docs/status/WHITEBOARD.md)
 

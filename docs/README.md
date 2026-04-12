@@ -84,8 +84,10 @@ Historical artifacts from earlier sessions. Not actively maintained.
 
 ```
 archive/
-├── sessions/             # Session handoffs from early development
-├── prompts/              # AI prompts and skill files from early development
-├── compass/              # Compass AI assistant analysis outputs
-└── Combined_Research_Docs.md  # Consolidated early research dump
+├── sessions/                    # Session handoffs from early development
+├── prompts/                     # AI prompts and skill files from early development
+│   └── SESSION_PROMPTS.md       # Ready-to-paste Claude Code session starters
+├── compass/                     # Compass AI assistant analysis outputs
+├── DEEP_RESEARCH_QUERIES.md     # Research queries for Claude.ai deep research mode
+└── Combined_Research_Docs.md    # Consolidated early research dump
 ```

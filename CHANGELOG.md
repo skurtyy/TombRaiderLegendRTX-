@@ -143,10 +143,16 @@ Decompile TerrainDrawable at 0x40ACF0, cross-reference with cdcEngine decompilat
 | 2 | 043 | Aggressive 7-NOP set in SceneTraversal | Crashed, not preserved |
 | 3 | 019–037 | Treating "red at distance" as real stage light | Was fallback light — reframed build 038 |
 | 4 | 040 | All 11 conditional exits in SceneTraversal (0x407150) | Draw counts 190K but anchors still vanish |
-| 5 | 032 | Config flag at 0x01075BE0 | No code xrefs, not connected |
+| 5 | 032 | Config flag at 0x01075BE0 ("disable extra static light culling") | No code xrefs, not connected to light collection |
 | 6 | 025 | Pending-render flag NOPs (0x603832, 0x60E30D) | No effect on bottleneck |
-| 7 | 026 | LightVolume_UpdateVisibility state NOPs | Patches not confirmed in log — silent failure |
-| 8 | 072 | Layer 31 (RenderQueue_FrustumCull bypass) | Adds 29% more draws but anchor lights still absent — hash mismatch likely root cause |
+| 7 | 026 | LightVolume_UpdateVisibility state NOPs (5 addrs) | Patches not confirmed in proxy log — silent VirtualProtect failure |
+| 8 | 045 | D3DPOOL_MANAGED + per-frame VB flush | Flush too aggressive (512 VB creates/frame); D3DPOOL_MANAGED is correct, flush is not |
+| 9 | 046 | Null VS for ALL draws (content fingerprint cache) | Breaks view-space geometry — FLOAT3 view-space positions render at extreme scale |
+| 10 | 047 | Remove `positions` from asset hash | Catastrophic hash collision — all geometry gets same hash; `positions` is required |
+| 11 | 066 | Draw cache disabled (`DRAW_CACHE_ENABLED 0`) | No effect — cache only replays 3 draws; stale pointer concern was unfounded |
+| 12 | 067 | Remove VP inverse epsilon threshold | No effect — VP changes on camera pan are always large enough to trigger recalculation |
+| 13 | 072 | RenderQueue_FrustumCull bypass (0x40C430 → 0x40C390) | +29% draws, no crash — lights still absent; anchor hash mismatch was the real cause |
+| 14 | 016–074 | `user.conf` `rtx.enableReplacementAssets=False` | Remix developer menu regenerates `user.conf` and resets this flag to `False`; silently disabled all mod content for 59 builds — **fixed in build 075** |
 
 ---
 
