@@ -1,24 +1,27 @@
-# Tomb Raider Legend — RTX Remix Port
+# Tomb Raider: Legend — RTX Remix Port
 
+[![CI](https://github.com/skurtyyskirts/TombRaiderLegendRTX-/actions/workflows/ci.yml/badge.svg)](https://github.com/skurtyyskirts/TombRaiderLegendRTX-/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Platform: Windows x86](https://img.shields.io/badge/Platform-Windows%20x86-blue)
 ![Game: TRL 2006](https://img.shields.io/badge/Game-Tomb%20Raider%3A%20Legend%20(2006)-red)
 ![Builds](https://img.shields.io/badge/Builds-075-orange)
 ![Status](https://img.shields.io/badge/Status-In%20Progress-yellow)
 
-Reverse-engineering Tomb Raider: Legend (2006) to run under NVIDIA RTX Remix — full path-traced lighting, stable geometry hashes, and complete scene visibility via a custom D3D9 FFP proxy DLL.
+A reverse engineering project to run Tomb Raider: Legend (2006) under NVIDIA RTX Remix — full path-traced lighting, stable geometry hashes, and complete scene visibility via a custom D3D9 FFP proxy DLL.
 
-**75 builds completed · All 31 culling layers patched · Replacement asset pipeline confirmed end-to-end (build 075) · Fresh mesh hash capture needed to anchor stage lights**
+**75 builds · All 31 culling layers patched · Replacement asset pipeline confirmed end-to-end (build 075) · Fresh mesh hash capture needed to anchor stage lights**
 
 ---
 
-## The Problem
+## Background
+
+### The Problem
 
 TRL renders exclusively through **programmable vertex shaders**. RTX Remix requires the D3D9 **Fixed-Function Pipeline (FFP)** to assign stable geometry hashes, inject path-traced lights, and resolve material replacements. Shader-bound draws produce unstable hashes because Remix cannot decode VS constant semantics.
 
 Remix also anchors scene lights to geometry draw calls. When TRL's culling systems hide geometry, Remix loses the anchor points and the lights vanish.
 
-## The Solution
+### The Solution
 
 A custom `d3d9.dll` proxy that sits between TRL and Remix:
 
@@ -49,6 +52,16 @@ NvRemixLauncher32.exe
 
 ---
 
+## Screenshots
+
+| Hash Debug — Geometry Colored by Asset Hash | Clean RTX Render — Purple Test Light (Build 075) |
+|---|---|
+| ![Hash debug](TRL%20tests/build-075-replacement-assets-fix-FAIL-stale-hashes/screenshots/phase1-hash-center.png) | ![Clean RTX render with purple test light](TRL%20tests/build-075-replacement-assets-fix-FAIL-stale-hashes/screenshots/phase2-clean-center-purple-light.png) |
+
+*Build 075 confirmed the full pipeline end-to-end: a purple replacement light anchored to `mesh_574EDF0EAD7FC51D` appeared immediately, held stable across all 3 camera positions, and shifted correctly with camera movement.*
+
+---
+
 ## Project Status
 
 | Milestone | Status | Build |
@@ -64,9 +77,11 @@ NvRemixLauncher32.exe
 | Replacement asset pipeline (mod lights, materials) | ✅ Confirmed end-to-end | 075 |
 | **Both stage lights stable at all positions** | 🔄 In progress — fresh hash capture needed | — |
 
-**Build 075 — breakthrough:** `user.conf` had `rtx.enableReplacementAssets=False`, silently disabling all mod content in every build from 016 through 074. Fixed. A purple test light anchored to `mesh_574EDF0EAD7FC51D` appeared immediately, held stable across all 3 camera positions, and shifted correctly with camera movement — confirming the entire pipeline (proxy transform → FFP submission → Remix hash matching → mod.usda anchoring) works end-to-end.
+### Current Blocker
 
-> **Current blocker:** Stage lights are absent only because the 8 anchor mesh hashes in `mod.usda` are stale. They were captured under a previous Remix configuration; no currently-rendered mesh matches those IDs. All geometry is rendering (3749 draw calls/scene). **Next step:** capture a fresh frame with the Remix Toolkit near the Peru stage, extract the current building mesh hash IDs, and update `mod.usda`.
+**Build 075 breakthrough:** `user.conf` had `rtx.enableReplacementAssets=False`, silently disabling all mod content in every build from 016 through 074. Fixed. A purple test light appeared immediately, held stable across all 3 camera positions, and shifted correctly with camera movement — confirming the entire pipeline works end-to-end.
+
+> **One step remaining:** The 8 anchor mesh hashes in `mod.usda` are stale — captured under a previous Remix configuration before `positions` was added to the hash rule. All geometry is rendering (3749 draw calls/scene). **Next step:** capture a fresh frame with the Remix Toolkit near the Peru stage, extract the current building mesh hash IDs, and update `mod.usda`.
 
 Full status and decision tree: [`docs/status/WHITEBOARD.md`](docs/status/WHITEBOARD.md)
 
@@ -111,9 +126,9 @@ c48+        Skinning bone matrices (3 registers / bone)
 | `0xF2A0D4/D8/DC` | `D3DCULL_NONE` | Cull mode globals |
 | `0x10FC910` | `1e30f` | Far clip distance |
 | `0xEDF9E3` | Trampoline | Null-check guard (prevents crash on uninitialized pointer) |
-| `0x40AE3E` terrain gate | NOP | Terrain distance/sector cull flag |
+| `0x40AE3E` | NOP | Terrain distance/sector cull flag |
 | `MeshSubmit_VisibilityGate` | `return 0` | Mesh visibility pre-check always passes |
-| `0x415C51` stream unload | NOP | Prevents mesh stream eviction on camera movement |
+| `0x415C51` | NOP | Prevents mesh stream eviction on camera movement |
 | Mesh eviction (3 sites) | NOP | `SectorEviction` × 2 + `ObjectTracker_Evict` |
 | `0x40C430` | JMP → `0x40C390` | Redirects BVH frustum culler to no-cull path (Layer 31, build 072) |
 
@@ -139,6 +154,8 @@ python -m autopatch
 
 **Pass criteria:** Both red and green stage lights visible in all 3 clean render screenshots, lights shift position as Lara strafes, hashes stable, no crash.
 
+> **Important:** `user.conf` in the game directory overrides `rtx.conf`. Always verify `rtx.enableReplacementAssets=True` is set before testing mod content — the Remix developer menu regenerates this file and resets it to `False`.
+
 ---
 
 ## Repository Layout
@@ -146,12 +163,13 @@ python -m autopatch
 | Path | Description |
 |------|-------------|
 | [`proxy/`](proxy/) | D3D9 FFP proxy DLL — MSVC x86, no-CRT, the core of this project |
+| [`patches/TombRaiderLegend/`](patches/) | Game-specific proxy, runtime patches, build scripts, KB, findings |
 | [`retools/`](retools/) | Offline static analysis — decompile, xrefs, CFG, RTTI, signatures, crash dump analysis |
 | [`livetools/`](livetools/) | Frida-based live analysis — tracing, breakpoints, memory r/w, D3D9 call counting |
 | [`graphics/directx/dx9/tracer/`](graphics/directx/dx9/tracer/) | Full-frame D3D9 API capture — all 119 methods, with offline analysis |
 | [`autopatch/`](autopatch/) | Autonomous hypothesis-test-patch loop |
 | [`automation/`](automation/) | Screenshot automation and test replay infrastructure |
-| [`docs/`](docs/) | Full documentation — research, reference, guides, session notes |
+| [`docs/`](docs/) | Full documentation — research, reference, guides |
 | [`TRL tests/`](TRL%20tests/) | Test build archive — every build with `SUMMARY.md`, screenshots, proxy log, source |
 | [`TRL traces/`](TRL%20traces/) | Full-frame D3D9 API captures for offline analysis |
 
@@ -183,8 +201,9 @@ PASS builds include `miracle` in the folder name. Every build — pass or fail �
 |----------|-------------|
 | [`docs/status/WHITEBOARD.md`](docs/status/WHITEBOARD.md) | **Live status** — 31-layer culling map, full build history narrative, decision tree, key addresses |
 | [`docs/status/TEST_STATUS.md`](docs/status/TEST_STATUS.md) | Build-by-build pass/fail table, what's done, what remains |
+| [`docs/`](docs/) | Full documentation index — reference, guides, research |
 | [`CHANGELOG.md`](CHANGELOG.md) | Cross-session development log — findings, patches, dead ends, next steps |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to contribute — setup, conventions, code review checklist |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Setup, conventions, and code review checklist |
 
 ---
 
@@ -195,8 +214,6 @@ PASS builds include `miracle` in the folder name. Every build — pass or fail �
 3. Check the latest build folder in [`TRL tests/`](TRL%20tests/) and its `SUMMARY.md`
 4. Read `patches/TombRaiderLegend/kb.h` — accumulated address map and struct layouts
 5. Run `python patches/TombRaiderLegend/run.py test --build` to execute the full automated test pipeline
-
-**Important:** `user.conf` in the game directory overrides `rtx.conf`. Always verify `rtx.enableReplacementAssets=True` is set in `user.conf` before testing mod content (the Remix developer menu regenerates this file and resets it to `False`).
 
 ---
 
