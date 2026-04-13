@@ -171,8 +171,9 @@ Every culling mechanism discovered and its patch status:
 | 074 | FAIL | Deferred patches + permanent page unlock | All 31 patches active. Deferred init fixes menu crash (no longer needs `TR7.arg`). Draw counts ~3749. Lights absent. No crash. |
 | 075 | FAIL | Fix `user.conf` `enableReplacementAssets=False`; test with purple reference light | **BREAKTHROUGH**: purple test light visible and stable (proves pipeline works). Stage light hashes stale — building geometry renders at ~3749 draws but no mesh matches mod.usda entries. White dots from prior builds were denoiser artifacts. |
 | 076 | FAIL | Restore 2 missing crash protections in TRL proxy (patch_null_crash_40D2AF, PUREDEVICE stripping) | **CRASH FIXED.** Game now runs 1,484+ scenes without crash. 3,733 draws/scene (3,413 S4 + 320 FLOAT3). Hash stable in Phase 1. Replacement light (purple) visible in clean render. Stage red/green lights still absent — mod.usda hashes stale. |
+| 077 | FIXED | DrawCache use-after-free fix — AddRef all resources (vb/ib/decl/tex0) in DrawCache_Record; DrawCache_Clear on WD_Release/WD_Reset/transition | **Cold launch crash fixed.** Game survives menu→level transition without TR7.arg; 2,468 draws/scene; no crash for 90+ seconds. Stage lights still absent — anchor hashes in mod.usda stale. |
 
-**Conclusion (builds 069-076):** The replacement asset pipeline is confirmed working end-to-end (build 075-076). The `user.conf` override was silently disabling all mod content for 59 consecutive builds. Now the only remaining task is a fresh Remix capture to get current mesh hash IDs and update `mod.usda`.
+**Conclusion (builds 069-077):** The replacement asset pipeline is confirmed working end-to-end (build 075-076). The `user.conf` override was silently disabling all mod content for 59 consecutive builds. The DrawCache use-after-free crash (exposed by cold launches without TR7.arg) is fixed in build 077. Now the only remaining task is a fresh Remix capture to get current mesh hash IDs and update `mod.usda`.
 
 ---
 
