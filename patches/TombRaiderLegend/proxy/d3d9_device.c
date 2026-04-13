@@ -1846,6 +1846,8 @@ static unsigned long __stdcall WD_Release(WrappedDevice *self) {
     if (self->refCount <= 0) {
         log_str("WrappedDevice released\r\n");
         PinnedDraw_ReleaseAll(self);
+        /* Release S4 expanded VBs — owned COM refs, must Release before HeapFree */
+        S4_FlushVBCache(self);
         /* Clear static draw cache — raw COM pointers dangle after device destroy */
         s_drawCacheCount = 0;
         s_cacheLogOnce = 0;
@@ -2001,6 +2003,8 @@ static int __stdcall WD_Reset(WrappedDevice *self, void *pPresentParams) {
 
     /* Pinned draws hold device resources — release before Reset */
     PinnedDraw_ReleaseAll(self);
+    /* Release S4 expanded VBs — they hold D3DPOOL_MANAGED resources invalidated by Reset */
+    S4_FlushVBCache(self);
     /* Clear static draw cache — raw COM pointers are invalidated by Reset */
     s_drawCacheCount = 0;
     s_cacheLogOnce = 0;
