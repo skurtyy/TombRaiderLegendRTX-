@@ -1,6 +1,6 @@
 # TRL RTX Remix — Live Whiteboard
 
-**Updated:** 2026-04-13 · **Builds:** 001–075 (003–015, 034, 043, 048–063 not preserved)  
+**Updated:** 2026-04-13 · **Builds:** 001–077 (003–015, 034, 043, 048–063 not preserved)  
 **Goal:** Stable hashes, full geometry submission, Remix lights anchored to stage geometry
 
 ---
@@ -9,6 +9,7 @@
 
 | Goal | Status | Notes |
 |------|--------|-------|
+| Cold launch without TR7.arg | DONE (build 077) | DrawCache use-after-free crash on menu→level transition — fixed |
 | FFP proxy DLL builds & chains | DONE | MSVC x86, chains to Remix d3d9 |
 | Transform pipeline (View/Proj/World) | DONE | View/Proj from game memory, World via WVP decomposition |
 | Asset hash stability (static camera) | DONE | `positions,indices,texcoords,geometrydescriptor` rule, session-reproducible |
@@ -262,9 +263,35 @@ FUN_006033d0 / FUN_00602aa0 ← IRRELEVANT (per build 038 root cause reframe)
 
 ---
 
+## Recent Issues — Build 077 (2026-04-13)
+
+### Launch Crash (Fixed)
+
+**Symptom:** Game crashed every time it was launched manually (without TR7.arg), approximately 60–70 seconds into the session. No Windows Error Dialog. The crash appeared in the Windows Event Log as a `d3d9_remix.dll` fault (offset `0x001654dc`, `STATUS_STACK_BUFFER_OVERRUN`).
+
+**Root cause:** `DrawCache_Record()` stored raw, un-referenced COM pointers to the game's vertex buffers, index buffers, vertex declarations, and textures. When the game freed menu geometry during the menu-to-level transition, `DrawCache_Replay()` used dangling pointers on the next Present call, passing freed VB/IB pointers into `SetStreamSource` + `DrawIndexedPrimitive`. The Remix bridge client crashed reading freed vertex data on the first raytrace frame (exactly when Neural Radiance Cache initialized).
+
+**Why it was never caught:** All builds 001–076 used `TR7.arg` (chapter=4) to start directly in Peru. Peru geometry stays loaded throughout the session — no resources freed mid-run. The bug was only triggered by a cold manual launch that goes through the main menu first.
+
+**Fix (build 077 / commit `4ce784e`):**
+
+- `DrawCache_ReleaseEntry()` — releases COM refs and marks slot inactive
+- `DrawCache_Clear()` — releases all active entries, zeros cache
+- `DrawCache_Record()` — AddRefs vb, decl, tex0; keeps GetIndices-AddRef'd ib as cache ref
+- `DrawCache_Replay()` — calls `DrawCache_ReleaseEntry` on stale eviction
+- `WD_Release` / `WD_Reset` / transition flush — use `DrawCache_Clear()` instead of raw `s_drawCacheCount = 0`
+
+**Verified:** Game runs 90+ seconds from cold menu start with 2,468 draw calls/scene, no crash.
+
+### Rendering Weird at Startup
+
+At startup (before TR7.arg was used, or on any cold manual launch), the game renders the main menu and intro sequence with only 12 draw calls per frame — far fewer than the ~2,400–3,700 seen in Peru gameplay. This appears as a nearly empty scene in Remix. This is **expected behavior**: the main menu is simple geometry. The game renders normally once loaded into a level. The crash above was preventing users from ever reaching the level from a cold launch.
+
+---
+
 ## Immediate Next Step
 
-> **Build 075: replacement asset pipeline confirmed working. Purple light visible and stable. Stage lights absent only because mod.usda hashes are stale.**
+> **Build 077: cold launch crash fixed. Game now runs stably from menu to level without TR7.arg. Stage lights still absent — anchor hashes in mod.usda are stale.**
 
 **One-step fix:**
 
