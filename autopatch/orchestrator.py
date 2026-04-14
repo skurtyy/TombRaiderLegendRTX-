@@ -110,13 +110,13 @@ def _wait_for_level_loaded(timeout: int = 60) -> bool:
 
 
 def _launch_game() -> int | None:
-    """Launch TRL directly into Peru via TR7.arg, skip cutscene, return hwnd."""
+    """Launch TRL into chapter 2 and advance into Bolivia gameplay."""
     from livetools.gamectl import find_hwnd_by_exe, get_window_info, send_keys
 
     sys.path.insert(0, str(REPO_ROOT / "patches" / "TombRaiderLegend"))
     from run import set_graphics_config, dismiss_setup_dialog, write_tr7_arg
     set_graphics_config()
-    write_tr7_arg(chapter=4)
+    write_tr7_arg(chapter=2)
 
     launcher = GAME_DIR / "NvRemixLauncher32.exe"
     game_exe = GAME_DIR / "trl.exe"
@@ -157,10 +157,10 @@ def _launch_game() -> int | None:
     print("  Waiting 20s for game to initialize...")
     time.sleep(20)
 
-    # Skip the Peru cutscene (3s wait, then ESC → W → ENTER)
-    print("  Skipping cutscene...")
+    # Advance through the chapter-2 Bolivia entry flow.
+    print("  Advancing through Bolivia entry flow...")
     time.sleep(3)
-    send_keys(hwnd, "ESCAPE WAIT:1550 W WAIT:1550 RETURN")
+    send_keys(hwnd, "ESCAPE WAIT:3000 W WAIT:3000 RETURN", delay_ms=0)
 
     # Wait for gameplay to start
     print("  Waiting 5s for gameplay to start...")
@@ -171,7 +171,7 @@ def _launch_game() -> int | None:
         print("  ERROR: Game exited during level load")
         return None
 
-    print("  [navigate] Peru level loaded, Lara in gameplay")
+    print("  [navigate] Bolivia gameplay loaded")
     return hwnd
 
 

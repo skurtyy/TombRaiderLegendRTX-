@@ -1,0 +1,134 @@
+{
+  "scenes": [
+    {
+      "id": "bolivia_stage_baseline",
+      "label": "Bolivia Stage Baseline",
+      "checkpoint_file": "peru_checkpoint.dat",
+      "bootstrap_goals": [
+        "Load chapter 2 and advance through the Bolivia entry flow",
+        "Stabilize at the Bolivia baseline camera",
+        "Refresh Remix anchor hashes in hash debug view"
+      ],
+      "macro_sequence": "WAIT:2500",
+      "mouse_moves": [
+        {
+          "dx": 0,
+          "dy": 0,
+          "repeat": 1,
+          "delay_ms": 0
+        }
+      ],
+      "debug_views": {
+        "hash": 277,
+        "clean": 0
+      },
+      "capture_hotkeys": [
+        "]"
+      ],
+      "screenshot_cadence_ms": 1200,
+      "hash_capture_count": 3,
+      "clean_capture_count": 3,
+      "performance_sample_seconds": 15,
+      "rois": {
+        "hash_stability": {
+          "x1": 0.18,
+          "y1": 0.18,
+          "x2": 0.82,
+          "y2": 0.88
+        }
+      },
+      "thresholds": {
+        "hash_retention_min_pct": 98.0
+      }
+    },
+    {
+      "id": "bolivia_sky_vista",
+      "label": "Bolivia Sky Vista",
+      "checkpoint_file": "peru_checkpoint.dat",
+      "bootstrap_goals": [
+        "Load chapter 2 and advance through the Bolivia entry flow",
+        "Tilt up to the Bolivia sky vista camera",
+        "Verify sky isolation without world contamination"
+      ],
+      "macro_sequence": "WAIT:1500",
+      "mouse_moves": [
+        {
+          "dx": 0,
+          "dy": -24,
+          "repeat": 12,
+          "delay_ms": 90
+        }
+      ],
+      "debug_views": {
+        "hash": 277,
+        "clean": 0
+      },
+      "capture_hotkeys": [
+        "]"
+      ],
+      "screenshot_cadence_ms": 1200,
+      "hash_capture_count": 3,
+      "clean_capture_count": 3,
+      "performance_sample_seconds": 15,
+      "rois": {
+        "sky": {
+          "x1": 0.2,
+          "y1": 0.05,
+          "x2": 0.8,
+          "y2": 0.35
+        }
+      },
+      "thresholds": {
+        "sky_non_void_min_pct": 70.0,
+        "sky_contamination_max_pct": 10.0
+      }
+    },
+    {
+      "id": "bolivia_waterfall",
+      "label": "Bolivia Waterfall",
+      "checkpoint_file": "peru_checkpoint.dat",
+      "bootstrap_goals": [
+        "Load chapter 2 and advance through the Bolivia entry flow",
+        "Move to the Bolivia waterfall validation camera",
+        "Hold a fixed camera for animated-water scoring"
+      ],
+      "macro_sequence": "WAIT:2000 HOLD:W:1200 WAIT:900 HOLD:D:700 WAIT:1200",
+      "mouse_moves": [
+        {
+          "dx": 18,
+          "dy": -6,
+          "repeat": 8,
+          "delay_ms": 75
+        }
+      ],
+      "debug_views": {
+        "hash": 277,
+        "clean": 0
+      },
+      "capture_hotkeys": [
+        "]"
+      ],
+      "screenshot_cadence_ms": 900,
+      "hash_capture_count": 3,
+      "clean_capture_count": 5,
+      "performance_sample_seconds": 15,
+      "rois": {
+        "water": {
+          "x1": 0.62,
+          "y1": 0.28,
+          "x2": 0.93,
+          "y2": 0.84
+        },
+        "background": {
+          "x1": 0.1,
+          "y1": 0.28,
+          "x2": 0.4,
+          "y2": 0.84
+        }
+      },
+      "thresholds": {
+        "water_motion_ratio_min": 3.0
+      }
+    }
+  ]
+}

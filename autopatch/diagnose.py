@@ -104,14 +104,14 @@ def _restore_proxy() -> None:
     restore_game_dll()
 
     # Restore proxy.ini from proxy source
-    proxy_ini = REPO_ROOT / "proxy" / "proxy.ini"
+    proxy_ini = REPO_ROOT / "patches" / "TombRaiderLegend" / "proxy" / "proxy.ini"
     if proxy_ini.exists():
         shutil.copy2(proxy_ini, GAME_DIR / "proxy.ini")
     print("[diagnose] Restored proxy DLL")
 
 
 def _launch_and_capture(macro_name: str) -> Path | None:
-    """Launch game directly into Peru via TR7.arg, run movement macro, trigger capture."""
+    """Launch game into chapter 2, advance into Bolivia, run movement macro, and trigger capture."""
     from livetools.gamectl import (find_hwnd_by_exe, send_keys, load_macros,
                                    get_window_info)
 
@@ -131,7 +131,7 @@ def _launch_and_capture(macro_name: str) -> Path | None:
     sys.path.insert(0, str(REPO_ROOT / "patches" / "TombRaiderLegend"))
     from run import set_graphics_config, dismiss_setup_dialog, write_tr7_arg
     set_graphics_config()
-    write_tr7_arg(chapter=4)
+    write_tr7_arg(chapter=2)
 
     # Launch trl.exe directly — the tracer replaces d3d9.dll, so using
     # NvRemixLauncher32 would load two competing D3D9 wrappers (deadlock).
@@ -165,10 +165,10 @@ def _launch_and_capture(macro_name: str) -> Path | None:
     print("[diagnose] Game window found. Waiting 20s for initialization...")
     time.sleep(20)
 
-    # Skip the Peru cutscene (3s wait, then ESC → W → ENTER)
-    print("[diagnose] Skipping cutscene...")
+    # Advance through the chapter-2 Bolivia entry flow.
+    print("[diagnose] Advancing through Bolivia entry flow...")
     time.sleep(3)
-    send_keys(hwnd, "ESCAPE WAIT:1550 W WAIT:1550 RETURN")
+    send_keys(hwnd, "ESCAPE WAIT:3000 W WAIT:3000 RETURN", delay_ms=0)
     time.sleep(5)
 
     # Run movement-only macro to position Lara

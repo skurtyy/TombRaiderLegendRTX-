@@ -219,14 +219,17 @@ rtx.uiTextures = 0x03016D2FBBF5C65D, 0x2164293A60D148AC
 pip install -r requirements.txt
 python verify_install.py
 
-# Full build + test pipeline
+# Full stage-light release gate
 python patches/TombRaiderLegend/run.py test --build --randomize
+
+# Hash-only nightly screening flow
+python patches/TombRaiderLegend/run.py test-hash --build
 
 # Autonomous patch-and-test loop
 python -m autopatch
 ```
 
-Say **"begin testing"** to run the full automated pipeline.
+Say **"begin testing"** to run the full stage-light release gate.
 Say **"begin testing manually"** to launch and test yourself.
 
 ## Engineering Standards

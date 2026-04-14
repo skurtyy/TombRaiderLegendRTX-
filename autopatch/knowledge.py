@@ -1,13 +1,11 @@
-"""Persistent iteration history — tracks what's been tried, what worked, what crashed."""
+"""Persistent iteration history backed by the unified nightly experiment ledger."""
 from __future__ import annotations
 
-import json
 import time
-from dataclasses import dataclass, field, asdict
-from pathlib import Path
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
-KNOWLEDGE_FILE = Path(__file__).resolve().parent / "knowledge.json"
+from patches.TombRaiderLegend.nightly.ledger import ExperimentLedger
 
 # Addresses already tried in builds 001-044 (extracted from proxy defines and build history).
 # These won't be re-generated as hypotheses.
@@ -31,8 +29,8 @@ class IterationRecord:
     hypothesis_id: str
     description: str
     target_addr: int
-    patch_bytes: str  # hex string
-    patch_type: str  # "runtime" or "source"
+    patch_bytes: str
+    patch_type: str
     passed: bool
     crashed: bool
     confidence: float
@@ -41,8 +39,6 @@ class IterationRecord:
 
 @dataclass
 class KnowledgeBase:
-    KNOWLEDGE_FILE = KNOWLEDGE_FILE
-
     iterations: list[dict] = field(default_factory=list)
     confirmed_patches: list[dict] = field(default_factory=list)
     blacklisted_addrs: list[int] = field(default_factory=list)
@@ -50,20 +46,30 @@ class KnowledgeBase:
     tried_addrs: list[int] = field(default_factory=lambda: list(SEED_TRIED_ADDRS))
 
     def save(self) -> None:
-        KNOWLEDGE_FILE.write_text(json.dumps(asdict(self), indent=2))
+        ledger = ExperimentLedger.load()
+        autopatch = ledger.autopatch_section()
+        autopatch["iterations"] = list(self.iterations)
+        autopatch["confirmed_patches"] = list(self.confirmed_patches)
+        autopatch["blacklisted_addrs"] = list(self.blacklisted_addrs)
+        autopatch["diagnostic_results"] = list(self.diagnostic_results)
+        autopatch["tried_addrs"] = list(self.tried_addrs)
+        ledger.save()
 
     @classmethod
-    def load(cls) -> KnowledgeBase:
-        if not KNOWLEDGE_FILE.exists():
-            kb = cls()
-            kb.save()
-            return kb
-        data = json.loads(KNOWLEDGE_FILE.read_text())
-        kb = cls(**data)
-        # Ensure seed addresses are present
+    def load(cls) -> "KnowledgeBase":
+        ledger = ExperimentLedger.load()
+        autopatch = ledger.autopatch_section()
+        kb = cls(
+            iterations=list(autopatch.get("iterations", [])),
+            confirmed_patches=list(autopatch.get("confirmed_patches", [])),
+            blacklisted_addrs=list(autopatch.get("blacklisted_addrs", [])),
+            diagnostic_results=list(autopatch.get("diagnostic_results", [])),
+            tried_addrs=list(autopatch.get("tried_addrs", [])),
+        )
         for addr in SEED_TRIED_ADDRS:
             if addr not in kb.tried_addrs:
                 kb.tried_addrs.append(addr)
+        kb.save()
         return kb
 
     def is_tried(self, addr: int) -> bool:

@@ -1,0 +1,50 @@
+{
+  "generator": {
+    "output_relative_to_game": "rtx-remix/mods/trl-nightly/mod.usda"
+  },
+  "capture_requirements": {
+    "min_mesh_hash_count": 8
+  },
+  "last_capture": {
+    "path": null,
+    "mesh_hash_count": 0
+  },
+  "anchor_groups": [
+    {
+      "id": "bolivia_stage_cluster",
+      "description": "Tracked Bolivia stage anchor hashes for nightly-generated lights and tags",
+      "selection": {
+        "mode": "explicit_only",
+        "minimum_matches": 1
+      },
+      "mesh_hashes": [
+        "00026F0C797E55AC",
+        "CC523F5CCE6A3A9E"
+      ]
+    }
+  ],
+  "lights": [
+    {
+      "id": "stage_red_reference",
+      "anchor_group": "bolivia_stage_cluster",
+      "color": [
+        1.0,
+        0.16,
+        0.12
+      ],
+      "intensity": 400.0,
+      "radius": 160.0
+    },
+    {
+      "id": "stage_green_reference",
+      "anchor_group": "bolivia_stage_cluster",
+      "color": [
+        0.16,
+        1.0,
+        0.2
+      ],
+      "intensity": 400.0,
+      "radius": 160.0
+    }
+  ]
+}

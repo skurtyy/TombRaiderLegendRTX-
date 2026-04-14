@@ -55,8 +55,14 @@ Before merging, verify the following:
 # Build proxy DLL (requires MSVC x86 toolchain)
 cd proxy && build.bat
 
-# Run full test pipeline (build + deploy + launch + macro + collect results)
+# Run the authoritative stage-light release gate
 python patches/TombRaiderLegend/run.py test --build --randomize
+
+# Run the hash-only nightly screening flow
+python patches/TombRaiderLegend/run.py test-hash --build
+
+# Run local Python tests with a fresh temp root outside the repo
+python -m pytest tests tests_trl -v --tb=short --basetemp "$env:TEMP\\trl-pytest-$(Get-Date -Format yyyyMMdd-HHmmss)"
 
 # Autonomous patch-and-test loop
 python -m autopatch

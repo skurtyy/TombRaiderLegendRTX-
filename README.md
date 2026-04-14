@@ -9,7 +9,7 @@
 
 A reverse engineering project to run Tomb Raider: Legend (2006) under NVIDIA RTX Remix — full path-traced lighting, stable geometry hashes, and complete scene visibility via a custom D3D9 FFP proxy DLL.
 
-**77 builds · All 31 culling layers patched · Cold launch stable (build 077) · Replacement asset pipeline confirmed end-to-end (build 075) · Fresh mesh hash capture needed to anchor stage lights**
+**77 builds · All 31 culling layers patched · Cold launch stable (build 077) · Nightly screening gates automated · Stage-light end-to-end run remains the authoritative release gate**
 
 ---
 
@@ -87,7 +87,9 @@ NvRemixLauncher32.exe
 
 **Build 077:** Fixed a `DrawCache` use-after-free crash triggered by any cold manual launch (without `TR7.arg`). `DrawCache_Record` stored un-referenced COM pointers; menu→level transitions freed the geometry while the cache still held them. Fixed by `AddRef`-ing all cached resources and `Release`-ing on eviction. Game now runs stably from cold menu start for 90+ seconds.
 
-> **One step remaining:** The 8 anchor mesh hashes in `mod.usda` are stale — captured before `positions` was added to the hash rule. All geometry is rendering (2,468+ draw calls/scene). **Next step:** capture a fresh frame with the Remix Toolkit near the Peru stage, extract the current building mesh hash IDs, and update `mod.usda`.
+> **Release policy:** nightly automation is a screening/regression gate only. Final promotion still requires the full stage-light run to show both reference lights in all 3 clean screenshots, motion across positions, stable hashes, and no crash.
+
+> **Stage-light status:** the original replacement-asset proof from build 075 still stands, but the current stage-anchor hashes need a fresh live capture before a candidate can be promoted.
 
 Full status and decision tree: [`docs/status/WHITEBOARD.md`](docs/status/WHITEBOARD.md)
 
@@ -151,14 +153,23 @@ pip install -r requirements.txt
 # Verify all tools are working
 python verify_install.py
 
-# Full build + test pipeline
-python patches/TombRaiderLegend/run.py test --build
+# Full stage-light end-to-end release gate
+python patches/TombRaiderLegend/run.py test --build --randomize
+
+# Hash-only nightly screening flow
+python patches/TombRaiderLegend/run.py test-hash --build
 
 # Autonomous patch-and-test loop
 python -m autopatch
 ```
 
 **Pass criteria:** Both red and green stage lights visible in all 3 clean render screenshots, lights shift position as Lara strafes, hashes stable, no crash.
+
+**Local pytest rule:** always use a fresh temp directory outside the repo and outside `.git`.
+
+```powershell
+python -m pytest tests tests_trl -v --tb=short --basetemp "$env:TEMP\\trl-pytest-$(Get-Date -Format yyyyMMdd-HHmmss)"
+```
 
 > **Important:** `user.conf` in the game directory overrides `rtx.conf`. Always verify `rtx.enableReplacementAssets=True` is set before testing mod content — the Remix developer menu regenerates this file and resets it to `False`.
 
@@ -219,7 +230,7 @@ PASS builds include `miracle` in the folder name. Every build — pass or fail �
 2. Read [`docs/status/TEST_STATUS.md`](docs/status/TEST_STATUS.md) — build-by-build results and open items
 3. Check the latest build folder in [`TRL tests/`](TRL%20tests/) and its `SUMMARY.md`
 4. Read `patches/TombRaiderLegend/kb.h` — accumulated address map and struct layouts
-5. Run `python patches/TombRaiderLegend/run.py test --build` to execute the full automated test pipeline
+5. Run `python patches/TombRaiderLegend/run.py test --build --randomize` for the authoritative stage-light release gate, or `python patches/TombRaiderLegend/run.py test-hash --build` for hash-only screening
 
 ---
 

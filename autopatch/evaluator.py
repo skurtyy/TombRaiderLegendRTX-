@@ -10,11 +10,11 @@ from PIL import Image
 # Calibration screenshot paths (relative to repo root)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PASS_SCREENSHOT = (
-    REPO_ROOT / "TombRaiderLegendRTX-" / "TRL tests"
+    REPO_ROOT / "TRL tests"
     / "build-019-miracle-both-lights-stable-hashes" / "clean-render-1-start.png"
 )
 FAIL_SCREENSHOT = (
-    REPO_ROOT / "TombRaiderLegendRTX-" / "TRL tests"
+    REPO_ROOT / "TRL tests"
     / "build-038-fallback-light-diagnostic-both-lights-gone" / "clean-render-2-neutral-no-lights.png"
 )
 

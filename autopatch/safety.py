@@ -5,7 +5,7 @@ import shutil
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PROXY_DIR = REPO_ROOT / "proxy"
+PROXY_DIR = REPO_ROOT / "patches" / "TombRaiderLegend" / "proxy"
 PROXY_SRC = PROXY_DIR / "d3d9_device.c"
 PROXY_MAIN = PROXY_DIR / "d3d9_main.c"
 PROXY_WRAPPER = PROXY_DIR / "d3d9_wrapper.c"

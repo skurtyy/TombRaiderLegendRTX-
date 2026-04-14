@@ -1,0 +1,65 @@
+{
+  "budgets": {
+    "default_hours": 8,
+    "candidate_limit": 12,
+    "keep_top_candidates": 3,
+    "max_source_mutation_rounds": 2,
+    "max_source_candidates_per_round": 2
+  },
+  "required_patch_tokens": [
+    "Patched Light_VisibilityTest to always TRUE",
+    "Patched MeshSubmit_VisibilityGate to always return 0",
+    "Patched cull mode globals to D3DCULL_NONE",
+    "NOPed terrain cull gate"
+  ],
+  "review": {
+    "review_baseline": true,
+    "review_top_candidates": 3,
+    "review_ambiguous_failures": true
+  },
+  "runtime": {
+    "launch_chapter": 2,
+    "post_load_sequence": "ESC WAIT:3000 W WAIT:3000 RETURN",
+    "post_load_settle_seconds": 3.0,
+    "sky_brightness": 2.0,
+    "fallback_light_mode": 0,
+    "preserve_manual_sky_tags": true
+  },
+  "publication": {
+    "base_branch": "main",
+    "run_branch_prefix": "nightly/trl",
+    "rolling_pr_branch_prefix": "nightly/trl",
+    "rolling_draft_pr_title": "TRL RTX Remix Nightly Solver",
+    "pr_body_heading": "Automated TRL nightly report",
+    "curated_artifact_limit": 12,
+    "auto_publish_on_completion": true
+  },
+  "automation": {
+    "write_handoff_report": true,
+    "auto_continue_with_claude": true,
+    "auto_continue_hours": [
+      3,
+      6,
+      8
+    ],
+    "claude_command": "claude"
+  },
+  "mutation_classes": {
+    "config_only": {
+      "enabled": true,
+      "count": 4
+    },
+    "runtime_hypothesis": {
+      "enabled": true,
+      "count": 8
+    },
+    "source_mutation": {
+      "enabled": true,
+      "templates": [
+        "sky_isolation_aggressive",
+        "water_animation_preserve",
+        "frame_timing_present_log"
+      ]
+    }
+  }
+}

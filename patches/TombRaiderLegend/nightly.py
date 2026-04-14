@@ -1,14 +1,14 @@
-"""Compatibility shim for the authoritative TRL runtime harness."""
+"""Script entrypoint for the TRL nightly solver."""
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from patches.TombRaiderLegend.run import main
+from patches.TombRaiderLegend.nightly.orchestrator import main
 
 
 if __name__ == "__main__":

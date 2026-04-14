@@ -1,6 +1,6 @@
 {
   "test_session": {
-    "description": "Movement-only: D/A strafe with screenshots (cutscene skip handled by launcher)",
-    "steps": "WAIT:2500 HOLD:D:2000 WAIT:500 ] WAIT:500 HOLD:A:3000 WAIT:500 ]"
+    "description": "Movement-only: bounded forward step, baseline, right sweep, left sweep (cutscene skip handled by launcher)",
+    "steps": "WAIT:2500 HOLD:W:2200 WAIT:1000 ] WAIT:1000 HOLD:D:900 WAIT:750 ] WAIT:1000 HOLD:A:2100 WAIT:750 ]"
   }
 }

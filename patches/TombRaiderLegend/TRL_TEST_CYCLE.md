@@ -18,8 +18,11 @@ python patches/TombRaiderLegend/run.py test --build --randomize
 
 This does:
 1. Builds the proxy DLL and deploys to game directory
-2. Phase 1: Launches game with `debugViewIdx = 277` (asset hash debug view), replays macro (menu nav → level load → baseline screenshot → A strafe 1-10s → screenshot → D strafe 1-10s → screenshot), collects screenshots
-3. Phase 2: Same but with `debugViewIdx = 0` (clean render), captures screenshots showing actual lighting
+2. Launches game once, advances to Bolivia, and replays the bounded movement macro
+3. At each of the 3 screenshot markers, captures a paired evidence set at the same live position:
+   - `debugViewIdx = 277` (asset hash debug view)
+   - `debugViewIdx = 0` (clean render with stage lights)
+4. Waits for a fresh proxy log from the current run, then writes the release-gate artifact
 
 **NEVER modify the test procedure** except the random A/D hold time range (1-10 seconds). The test must be consistent across builds.
 

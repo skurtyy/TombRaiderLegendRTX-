@@ -16,11 +16,11 @@ Automated build-test-analyze workflow for the Tomb Raider Legend FFP proxy with 
 # Record a new test session (launches game, records your inputs)
 python patches/TombRaiderLegend/run.py record
 
-# Run the full automation (build + deploy + launch + replay + collect)
-python patches/TombRaiderLegend/run.py test --build
+# Run the authoritative release gate (build + deploy + launch + movement + collect)
+python patches/TombRaiderLegend/run.py test --build --randomize
 
-# Run without rebuilding (just launch + replay + collect)
-python patches/TombRaiderLegend/run.py test
+# Run the hash-only screening flow
+python patches/TombRaiderLegend/run.py test-hash --build
 ```
 
 ## How It Works
@@ -36,7 +36,7 @@ python patches/TombRaiderLegend/run.py test
 7. Press **F12** to stop recording
 8. Saves as `test_session` macro in `patches/TombRaiderLegend/macros.json`
 
-### Testing (`run.py test --build`)
+### Release Gate (`run.py test --build --randomize`)
 
 1. **Build** — Compiles proxy DLL via `build.bat` (MSVC x86, no CRT)
 2. **Deploy** — Copies `d3d9.dll` + `proxy.ini` to game directory
@@ -46,10 +46,19 @@ python patches/TombRaiderLegend/run.py test
 6. **Setup dialog** — Auto-detects and dismisses the TRL setup dialog (Win32 `BM_CLICK` on Ok button)
 7. **Wait** — 20 seconds for game to fully load without touching focus
 8. **Replay** — Sends the recorded `test_session` macro via `SendInput`
-9. **Proxy log** — Waits up to 70 seconds for `ffp_proxy.log` to appear (50s delay in proxy)
-10. **Close game** — `taskkill /f /im trl.exe`
-11. **Screenshots** — Collects all NVIDIA screenshots from the last 2 minutes
-12. **Done** — Proxy log + screenshots ready for analysis
+9. **Paired captures** — Every `]` marker captures hash view (`debugViewIdx=277`) and clean view (`debugViewIdx=0`) at the same live stage position
+10. **Proxy log** — Waits up to 70 seconds for a fresh `ffp_proxy.log` from the current run
+11. **Artifacts** — Writes release-gate screenshots under `patches/TombRaiderLegend/screenshots/` and the authoritative JSON report under `Tomb Raider Legend/artifacts/release_gate/`
+12. **Close game** — `taskkill /f /im trl.exe`
+13. **Done** — Proxy log + paired screenshot evidence ready for ship/no-ship review
+
+### Hash Screening (`run.py test-hash --build`)
+
+1. **Build** — Compiles proxy DLL via `build.bat` (MSVC x86, no CRT)
+2. **Deploy** — Copies `d3d9.dll` + `proxy.ini` to game directory
+3. **Launch** — Starts game and captures the camera-only hash stability sequence
+4. **Collect** — Saves hash screenshots and proxy diagnostics for nightly screening
+5. **Done** — Useful for regression detection, but not for final promotion
 
 ## Key Files
 
@@ -138,11 +147,11 @@ The `ffp_proxy.log` contains scene summaries every 120 frames:
 
 ## Iteration Workflow
 
-For continuous hash stability testing:
+For screening and release validation:
 
 1. Modify proxy source (`d3d9_device.c`)
-2. Run `python patches/TombRaiderLegend/run.py test --build`
-3. Check proxy log metrics
-4. Review screenshots for hash stability (Geometry Hash debug view)
-5. Commit and push results
-6. Repeat until hashes are stable
+2. Run `python patches/TombRaiderLegend/run.py test-hash --build` to check nightly hash/screening regressions
+3. Run `python patches/TombRaiderLegend/run.py test --build --randomize` before promotion
+4. Check proxy log metrics and confirm `passthrough=0`, `xformBlocked=0`, and no crash
+5. Review screenshots for both stable hashes and visible red/green stage lights across all 3 positions
+6. Commit and push results

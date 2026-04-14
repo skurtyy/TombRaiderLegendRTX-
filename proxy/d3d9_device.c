@@ -72,6 +72,9 @@ extern void log_floats_dec(const char *prefix, float *data, unsigned int count);
 #define VS_REG_WVP_END          4
 #define VS_REG_VP_START        12   /* ViewProject (used by skinned shaders) */
 #define VS_REG_VP_END          16
+#define VS_REG_TEX0_SCROLL     17   /* Per-draw UV scroll offset */
+#define VS_REG_TEX0_XFORM_START 24  /* Per-draw UV transform matrix */
+#define VS_REG_TEX0_XFORM_END   28
 
 /* Game memory addresses for authoritative View and Projection matrices (row-major, 16 floats each) */
 #define TRL_VIEW_MATRIX_ADDR    0x010FC780
@@ -217,6 +220,26 @@ extern void log_floats_dec(const char *prefix, float *data, unsigned int count);
 #define DRAW_CACHE_ENABLED 1
 #define DRAW_CACHE_MAX 4096
 
+/* FLOAT3 routing modes:
+ * auto    = use shader route when rtx.useVertexCapture is enabled, else null VS
+ * null_vs = always force null VS + FFP state for FLOAT3 draws
+ * shader  = always keep shader path for FLOAT3 draws */
+#define FLOAT3_ROUTE_AUTO     0
+#define FLOAT3_ROUTE_NULL_VS  1
+#define FLOAT3_ROUTE_SHADER   2
+
+/* Sky isolation: duplicate candidate sky textures with a one-bit mutation so
+ * sky tagging in Remix can target sky-only hashes without touching world draws. */
+#define SKY_ISO_MAX 64
+
+typedef struct SkyIsoEntry {
+    void *origTex;       /* source stage texture pointer */
+    void *isoTex;        /* cloned + bit-mutated texture (owned, Release on reset) */
+    int candidate;       /* marked during warm-up */
+    int cloneAttempted;  /* avoid expensive repeated clone attempts */
+    int cloneReady;      /* isoTex is valid */
+} SkyIsoEntry;
+
 typedef struct {
     /* Fingerprint — identifies "same" draw across frames */
     void *vb;               /* vertex buffer */
@@ -234,6 +257,7 @@ typedef struct {
     unsigned int streamOff; /* stream 0 offset */
     unsigned int streamStr; /* stream 0 stride */
     float world[16];        /* computed world matrix */
+    int isViewSpace;        /* 1 if live draw used view-space path (View=Identity) */
     /* SHORT4 expansion state for replay */
     int isShort4;           /* 1 if original draw had SHORT4 position */
     int posOff;             /* position offset in source vertex */
@@ -281,6 +305,9 @@ typedef struct {
 #define D3DTSS_ALPHAARG2   6
 #define D3DTSS_TEXCOORDINDEX 11
 #define D3DTSS_TEXTURETRANSFORMFLAGS 24
+
+#define D3DTTFF_DISABLE    0
+#define D3DTTFF_COUNT2     2
 
 #define D3DTOP_DISABLE     1
 #define D3DTOP_MODULATE    4
@@ -336,6 +363,28 @@ typedef struct {
 #define D3DPOOL_MANAGED       1
 #define D3DLOCK_READONLY      0x10
 #define D3DLOCK_DISCARD       0x2000
+#define D3DRTYPE_TEXTURE      3
+#define D3DFMT_DXT1           0x31545844u
+#define D3DFMT_DXT2           0x32545844u
+#define D3DFMT_DXT3           0x33545844u
+#define D3DFMT_DXT4           0x34545844u
+#define D3DFMT_DXT5           0x35545844u
+
+typedef struct {
+    int Pitch;
+    void *pBits;
+} D3DLOCKED_RECT;
+
+typedef struct {
+    unsigned int Format;
+    unsigned int Type;
+    unsigned int Usage;
+    unsigned int Pool;
+    unsigned int MultiSampleType;
+    unsigned int MultiSampleQuality;
+    unsigned int Width;
+    unsigned int Height;
+} D3DSURFACE_DESC;
 
 #if ENABLE_SKINNING && EXPAND_SKIN_VERTICES
 /* Expanded skinned vertex layout: FLOAT3 pos + FLOAT3 weights + UBYTE4 idx + FLOAT3 normal + FLOAT2 uv */
@@ -508,6 +557,9 @@ typedef struct PinnedDraw {
 
     /* Transform state: cached WVP (c0-c3) for this draw */
     float wvpConst[16];     /* VS constants c0-c3 at capture time */
+    int isViewSpace;        /* 1 if live draw used view-space path (View=Identity) */
+    int isShort4;           /* 1 if original draw had SHORT4 position */
+    int posOff;             /* POSITION byte offset for SHORT4 expansion */
 
     int active;             /* 1 = slot in use */
     int submittedThisFrame; /* reset each frame, set when game submits matching draw */
@@ -532,6 +584,11 @@ typedef struct WrappedDevice {
     void *lastPS;           /* last pixel shader set by the game */
     int viewProjValid;      /* set once both View and Proj register ranges have been written */
     int ffpActive;          /* real device currently has NULL shaders (FFP mode) */
+    float tex0ScrollConst[4];     /* c17: UV scroll offset */
+    float tex0TransformConst[16]; /* c24-c27: UV animation matrix */
+    void *tex0TransformVS;        /* shader that wrote the current UV animation state */
+    int tex0ScrollValid;
+    int tex0TransformValid;
 
     void *lastDecl;         /* current IDirect3DVertexDeclaration9* */
     int curDeclIsSkinned;   /* 1 if current decl has BLENDWEIGHT+BLENDINDICES */
@@ -577,6 +634,18 @@ typedef struct WrappedDevice {
     /* Texture tracking (stages 0-7) */
     void *curTexture[8];
     int albedoStage;
+    int useVertexCaptureEffective; /* effective rtx.useVertexCapture (user.conf > rtx.conf) */
+    int float3RoutingMode;         /* FLOAT3_ROUTE_* */
+
+    /* Sky isolation runtime config/state */
+    int skyIsolationEnable;
+    unsigned int skyCandidateMinVerts;
+    unsigned int skyCandidateMinPrims;
+    unsigned int skyWarmupScenes;
+    unsigned int skyWarmupStartScene;
+    int skyWarmupStarted;
+    SkyIsoEntry skyIso[SKY_ISO_MAX];
+    int skyIsoCount;
 
     /* Stream source tracking (streams 0-3) */
     void *streamVB[4];
@@ -603,6 +672,7 @@ typedef struct WrappedDevice {
     unsigned int diagLoggedFrames;
     unsigned int drawCallCount;
     unsigned int sceneCount;
+    unsigned int skySceneCounter;   /* global BeginScene count (not reset per frame) */
     int vsConstWriteLog[256];
 
     /* Per-frame draw routing counters (logged at Present without delay) */
@@ -612,7 +682,7 @@ typedef struct WrappedDevice {
     unsigned int drawsTotal;        /* all DIP+DP calls this frame */
     unsigned int transformsBlocked; /* external SetTransform V/P/W blocked */
     unsigned int drawsS4;           /* SHORT4 draws (VS nulled, FFP) */
-    unsigned int drawsF3;           /* FLOAT3/other draws (VS active) */
+    unsigned int drawsF3;           /* FLOAT3/other draws */
     unsigned int frameSummaryCount; /* how many frame summaries logged */
 
     /* Stripped-normal declaration cache: maps original decl → decl with NORMAL removed.
@@ -664,6 +734,13 @@ static __inline void** RealVtbl(WrappedDevice *self) {
     return *(void***)(self->pReal);
 }
 
+/* Forward declarations for cross-section helpers used before definitions */
+static void TRL_ApplyFFPDrawState(WrappedDevice *self, int applyTex0Transform);
+static int S4_ExpandAndDraw(WrappedDevice *self,
+    void *srcVB, unsigned int srcOff, unsigned int srcStride, void *origDecl, int posOff,
+    unsigned int pt, int bvi, unsigned int nv, unsigned int si, unsigned int pc,
+    float *world, float *view, float *proj);
+
 static __inline void shader_addref(void *pShader) {
     if (pShader) {
         typedef unsigned long (__stdcall *FN)(void*);
@@ -675,6 +752,241 @@ static __inline void shader_release(void *pShader) {
         typedef unsigned long (__stdcall *FN)(void*);
         ((FN)(*(void***)pShader)[2])(pShader);
     }
+}
+
+static const float s_identity4x4[16] = {
+    1,0,0,0,
+    0,1,0,0,
+    0,0,1,0,
+    0,0,0,1
+};
+
+static int ascii_tolower(int c) {
+    if (c >= 'A' && c <= 'Z')
+        return c + ('a' - 'A');
+    return c;
+}
+
+static int ascii_is_space(int c) {
+    return (c == ' ' || c == '\t' || c == '\r' || c == '\n');
+}
+
+static int str_ieq_a(const char *a, const char *b) {
+    unsigned int i = 0;
+    while (a[i] && b[i]) {
+        if (ascii_tolower((unsigned char)a[i]) != ascii_tolower((unsigned char)b[i]))
+            return 0;
+        i++;
+    }
+    return (a[i] == '\0' && b[i] == '\0') ? 1 : 0;
+}
+
+static int str_ieq_span_a(const char *a, int aLen, const char *b) {
+    int i;
+    for (i = 0; i < aLen; i++) {
+        if (b[i] == '\0')
+            return 0;
+        if (ascii_tolower((unsigned char)a[i]) != ascii_tolower((unsigned char)b[i]))
+            return 0;
+    }
+    return (b[aLen] == '\0') ? 1 : 0;
+}
+
+static int parse_bool_token(const char *s, int len, int *outVal) {
+    if (!s || len <= 0 || !outVal)
+        return 0;
+    if (len == 1) {
+        if (s[0] == '1') { *outVal = 1; return 1; }
+        if (s[0] == '0') { *outVal = 0; return 1; }
+    }
+    if (str_ieq_span_a(s, len, "true") || str_ieq_span_a(s, len, "yes") || str_ieq_span_a(s, len, "on")) {
+        *outVal = 1;
+        return 1;
+    }
+    if (str_ieq_span_a(s, len, "false") || str_ieq_span_a(s, len, "no") || str_ieq_span_a(s, len, "off")) {
+        *outVal = 0;
+        return 1;
+    }
+    return 0;
+}
+
+static void get_dll_sibling_path_local(char *out, int outSize, const char *filename) {
+    int i, lastSlash = -1, p;
+    extern HINSTANCE g_hInstance;
+    GetModuleFileNameA(g_hInstance, out, outSize);
+    for (i = 0; out[i]; i++) {
+        if (out[i] == '\\' || out[i] == '/')
+            lastSlash = i;
+    }
+    p = (lastSlash >= 0) ? (lastSlash + 1) : 0;
+    for (i = 0; filename[i] && p < outSize - 1; i++)
+        out[p++] = filename[i];
+    out[p] = '\0';
+}
+
+static int read_conf_bool_key(const char *path, const char *key, int *outFound, int *outVal) {
+    HANDLE hFile;
+    DWORD fileSize, bytesRead = 0;
+    char *buf;
+    int found = 0;
+    int value = 0;
+    int pos, total;
+
+    if (outFound) *outFound = 0;
+    if (!path || !key || !outFound || !outVal)
+        return 0;
+
+    hFile = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE)
+        return 0;
+
+    fileSize = GetFileSize(hFile, NULL);
+    if (fileSize == 0xFFFFFFFFu || fileSize == 0 || fileSize > (1024u * 1024u)) {
+        CloseHandle(hFile);
+        return 0;
+    }
+
+    buf = (char*)HeapAlloc(GetProcessHeap(), 0, fileSize + 1);
+    if (!buf) {
+        CloseHandle(hFile);
+        return 0;
+    }
+
+    if (!ReadFile(hFile, buf, fileSize, &bytesRead, NULL)) {
+        HeapFree(GetProcessHeap(), 0, buf);
+        CloseHandle(hFile);
+        return 0;
+    }
+    CloseHandle(hFile);
+    buf[bytesRead] = '\0';
+
+    total = (int)bytesRead;
+    pos = 0;
+    while (pos < total) {
+        int lineStart = pos;
+        int lineEnd = pos;
+        int contentEnd;
+        int left, right, eq;
+
+        while (lineEnd < total && buf[lineEnd] != '\n' && buf[lineEnd] != '\r')
+            lineEnd++;
+        pos = lineEnd;
+        while (pos < total && (buf[pos] == '\n' || buf[pos] == '\r'))
+            pos++;
+
+        contentEnd = lineEnd;
+        {
+            int i;
+            for (i = lineStart; i < lineEnd; i++) {
+                if (buf[i] == '#' || buf[i] == ';') {
+                    contentEnd = i;
+                    break;
+                }
+            }
+        }
+
+        left = lineStart;
+        right = contentEnd;
+        while (left < right && ascii_is_space((unsigned char)buf[left])) left++;
+        while (right > left && ascii_is_space((unsigned char)buf[right - 1])) right--;
+        if (left >= right)
+            continue;
+
+        eq = -1;
+        {
+            int i;
+            for (i = left; i < right; i++) {
+                if (buf[i] == '=') {
+                    eq = i;
+                    break;
+                }
+            }
+        }
+        if (eq <= left)
+            continue;
+
+        {
+            int keyL = left;
+            int keyR = eq;
+            int valL = eq + 1;
+            int valR = right;
+            int tokenR;
+            int parsedVal;
+
+            while (keyL < keyR && ascii_is_space((unsigned char)buf[keyL])) keyL++;
+            while (keyR > keyL && ascii_is_space((unsigned char)buf[keyR - 1])) keyR--;
+            while (valL < valR && ascii_is_space((unsigned char)buf[valL])) valL++;
+            while (valR > valL && ascii_is_space((unsigned char)buf[valR - 1])) valR--;
+
+            if (keyL >= keyR || valL >= valR)
+                continue;
+            if (!str_ieq_span_a(&buf[keyL], keyR - keyL, key))
+                continue;
+
+            tokenR = valL;
+            while (tokenR < valR &&
+                !ascii_is_space((unsigned char)buf[tokenR]) &&
+                buf[tokenR] != ',')
+            {
+                tokenR++;
+            }
+
+            if (parse_bool_token(&buf[valL], tokenR - valL, &parsedVal)) {
+                found = 1;
+                value = parsedVal;
+            }
+        }
+    }
+
+    HeapFree(GetProcessHeap(), 0, buf);
+    *outFound = found;
+    *outVal = value;
+    return found ? 1 : 0;
+}
+
+static int parse_float3_routing_mode(const char *modeText) {
+    if (!modeText)
+        return FLOAT3_ROUTE_AUTO;
+    if (str_ieq_a(modeText, "auto"))
+        return FLOAT3_ROUTE_AUTO;
+    if (str_ieq_a(modeText, "null_vs") || str_ieq_a(modeText, "null-vs") || str_ieq_a(modeText, "nullvs"))
+        return FLOAT3_ROUTE_NULL_VS;
+    if (str_ieq_a(modeText, "shader"))
+        return FLOAT3_ROUTE_SHADER;
+    return FLOAT3_ROUTE_AUTO;
+}
+
+static int TRL_GetEffectiveFloat3Route(WrappedDevice *self) {
+    if (self->float3RoutingMode == FLOAT3_ROUTE_NULL_VS)
+        return FLOAT3_ROUTE_NULL_VS;
+    if (self->float3RoutingMode == FLOAT3_ROUTE_SHADER)
+        return FLOAT3_ROUTE_SHADER;
+    return self->useVertexCaptureEffective ? FLOAT3_ROUTE_SHADER : FLOAT3_ROUTE_NULL_VS;
+}
+
+static int TRL_ReadEffectiveUseVertexCapture(void) {
+    char userConf[MAX_PATH];
+    char rtxConf[MAX_PATH];
+    int found = 0;
+    int value = 1;
+
+    get_dll_sibling_path_local(userConf, MAX_PATH, "user.conf");
+    if (read_conf_bool_key(userConf, "rtx.useVertexCapture", &found, &value) && found) {
+        log_int("  useVertexCapture (user.conf): ", value);
+        return value ? 1 : 0;
+    }
+
+    found = 0;
+    value = 1;
+    get_dll_sibling_path_local(rtxConf, MAX_PATH, "rtx.conf");
+    if (read_conf_bool_key(rtxConf, "rtx.useVertexCapture", &found, &value) && found) {
+        log_int("  useVertexCapture (rtx.conf): ", value);
+        return value ? 1 : 0;
+    }
+
+    log_str("  useVertexCapture: default True (key missing)\r\n");
+    return 1;
 }
 
 /* ---- FFP State Setup ---- */
@@ -748,6 +1060,10 @@ static void mat4_transpose(float *dst, const float *src) {
     dst[4]  = src[1];  dst[5]  = src[5];  dst[6]  = src[9];  dst[7]  = src[13];
     dst[8]  = src[2];  dst[9]  = src[6];  dst[10] = src[10]; dst[11] = src[14];
     dst[12] = src[3];  dst[13] = src[7];  dst[14] = src[11]; dst[15] = src[15];
+}
+
+static void mat4_identity(float *dst) {
+    memcpy(dst, s_identity4x4, 64);
 }
 
 /* Multiply two 4x4 row-major matrices: dst = A * B */
@@ -840,6 +1156,15 @@ static int mat4_is_interesting(const float *m) {
     return 1;
 }
 
+static int mat4_is_zero(const float *m) {
+    int i;
+    for (i = 0; i < 16; i++) {
+        if (m[i] != 0.0f)
+            return 0;
+    }
+    return 1;
+}
+
 /* Log a 4x4 matrix row by row (for diagnostics) */
 static void diag_log_matrix(const char *name, const float *m) {
     log_str(name);
@@ -848,6 +1173,353 @@ static void diag_log_matrix(const char *name, const float *m) {
     log_floats_dec("  row1: ", (float*)&m[4], 4);
     log_floats_dec("  row2: ", (float*)&m[8], 4);
     log_floats_dec("  row3: ", (float*)&m[12], 4);
+}
+
+static void TRL_ResetTexture0AnimationState(WrappedDevice *self) {
+    int i;
+    self->tex0TransformVS = NULL;
+    self->tex0ScrollValid = 0;
+    self->tex0TransformValid = 0;
+    for (i = 0; i < 4; i++)
+        self->tex0ScrollConst[i] = 0.0f;
+    for (i = 0; i < 16; i++)
+        self->tex0TransformConst[i] = 0.0f;
+}
+
+static int TRL_BuildTexture0Transform(WrappedDevice *self, float *outTexMatrix) {
+    float texMatrix[16];
+    float scrollU = 0.0f;
+    float scrollV = 0.0f;
+    int active = 0;
+
+    mat4_identity(outTexMatrix);
+
+    if (!self->tex0TransformVS || self->tex0TransformVS != self->lastVS)
+        return 0;
+
+    if (self->tex0TransformValid) {
+        mat4_transpose(texMatrix, self->tex0TransformConst);
+        if (!mat4_is_zero(texMatrix)) {
+            memcpy(outTexMatrix, texMatrix, 64);
+            if (!mat4_approx_equal(outTexMatrix, s_identity4x4, 1e-6f))
+                active = 1;
+        }
+    }
+
+    if (self->tex0ScrollValid) {
+        scrollU = self->tex0ScrollConst[0];
+        scrollV = self->tex0ScrollConst[1];
+        if (scrollU > 1e-6f || scrollU < -1e-6f ||
+            scrollV > 1e-6f || scrollV < -1e-6f) {
+            outTexMatrix[12] += scrollU;
+            outTexMatrix[13] += scrollV;
+            active = 1;
+        }
+    }
+
+    return active;
+}
+
+static int TRL_DrawHasAnimatedTexture0(WrappedDevice *self) {
+    float texMatrix[16];
+    return TRL_BuildTexture0Transform(self, texMatrix);
+}
+
+static int SkyIso_IsCompressedFormat(unsigned int fmt) {
+    return (fmt == D3DFMT_DXT1 ||
+            fmt == D3DFMT_DXT2 ||
+            fmt == D3DFMT_DXT3 ||
+            fmt == D3DFMT_DXT4 ||
+            fmt == D3DFMT_DXT5) ? 1 : 0;
+}
+
+static unsigned int SkyIso_CopyRowsForLevel(const D3DSURFACE_DESC *desc) {
+    unsigned int rows = desc->Height;
+    if (SkyIso_IsCompressedFormat(desc->Format))
+        rows = (rows + 3) / 4;
+    if (rows == 0)
+        rows = 1;
+    return rows;
+}
+
+static void SkyIso_ReleaseTexture(void *pTexture) {
+    if (pTexture) {
+        typedef unsigned long (__stdcall *FN_Rel)(void*);
+        ((FN_Rel)(*(void***)pTexture)[2])(pTexture);
+    }
+}
+
+static void SkyIso_Clear(WrappedDevice *self) {
+    int i;
+    for (i = 0; i < self->skyIsoCount; i++) {
+        SkyIsoEntry *entry = &self->skyIso[i];
+        if (entry->isoTex)
+            SkyIso_ReleaseTexture(entry->isoTex);
+        entry->origTex = NULL;
+        entry->isoTex = NULL;
+        entry->candidate = 0;
+        entry->cloneAttempted = 0;
+        entry->cloneReady = 0;
+    }
+    self->skyIsoCount = 0;
+    self->skyWarmupStarted = 0;
+    self->skyWarmupStartScene = 0;
+}
+
+static SkyIsoEntry *SkyIso_FindOrCreateEntry(WrappedDevice *self, void *origTex, int createIfMissing) {
+    int i;
+    for (i = 0; i < self->skyIsoCount; i++) {
+        if (self->skyIso[i].origTex == origTex)
+            return &self->skyIso[i];
+    }
+    if (!createIfMissing || self->skyIsoCount >= SKY_ISO_MAX)
+        return NULL;
+    {
+        SkyIsoEntry *entry = &self->skyIso[self->skyIsoCount++];
+        entry->origTex = origTex;
+        entry->isoTex = NULL;
+        entry->candidate = 0;
+        entry->cloneAttempted = 0;
+        entry->cloneReady = 0;
+        return entry;
+    }
+}
+
+static int SkyIso_IsWarmupActive(WrappedDevice *self) {
+    if (!self->skyWarmupStarted || self->skyWarmupScenes == 0)
+        return 0;
+    if (self->skySceneCounter < self->skyWarmupStartScene)
+        return 0;
+    return ((self->skySceneCounter - self->skyWarmupStartScene) < self->skyWarmupScenes) ? 1 : 0;
+}
+
+static int SkyIso_CloneTexture(WrappedDevice *self, SkyIsoEntry *entry) {
+    typedef unsigned int (__stdcall *FN_GetType)(void*);
+    typedef unsigned int (__stdcall *FN_TexGetLevelCount)(void*);
+    typedef int (__stdcall *FN_TexGetLevelDesc)(void*, unsigned int, D3DSURFACE_DESC*);
+    typedef int (__stdcall *FN_TexLockRect)(void*, unsigned int, D3DLOCKED_RECT*, void*, unsigned int);
+    typedef int (__stdcall *FN_TexUnlockRect)(void*, unsigned int);
+    typedef int (__stdcall *FN_CreateTexture)(void*, unsigned int, unsigned int, unsigned int,
+        unsigned int, unsigned int, unsigned int, void**, void*);
+
+    void *origTex;
+    void *cloneTex = NULL;
+    void **origVt;
+    void **cloneVt;
+    unsigned int levelCount;
+    unsigned int level;
+    int ok = 1;
+
+    if (!entry || !entry->origTex)
+        return 0;
+    if (entry->cloneReady && entry->isoTex)
+        return 1;
+    if (entry->cloneAttempted)
+        return 0;
+    entry->cloneAttempted = 1;
+    origTex = entry->origTex;
+
+    origVt = *(void***)origTex;
+    if (((FN_GetType)origVt[10])(origTex) != D3DRTYPE_TEXTURE)
+        return 0;
+
+    levelCount = ((FN_TexGetLevelCount)origVt[13])(origTex);
+    if (levelCount == 0)
+        levelCount = 1;
+
+    {
+        D3DSURFACE_DESC desc0;
+        if (((FN_TexGetLevelDesc)origVt[17])(origTex, 0, &desc0) != 0)
+            return 0;
+        if (((FN_CreateTexture)RealVtbl(self)[SLOT_CreateTexture])(
+                self->pReal,
+                desc0.Width,
+                desc0.Height,
+                levelCount,
+                0,
+                desc0.Format,
+                D3DPOOL_MANAGED,
+                &cloneTex,
+                NULL) != 0 || !cloneTex) {
+            return 0;
+        }
+    }
+
+    cloneVt = *(void***)cloneTex;
+    for (level = 0; level < levelCount; level++) {
+        D3DSURFACE_DESC levelDesc;
+        D3DLOCKED_RECT srcRect;
+        D3DLOCKED_RECT dstRect;
+        unsigned int copyRows;
+        unsigned int row;
+        unsigned int rowBytes;
+
+        if (((FN_TexGetLevelDesc)origVt[17])(origTex, level, &levelDesc) != 0) {
+            ok = 0;
+            break;
+        }
+        if (((FN_TexLockRect)origVt[19])(origTex, level, &srcRect, NULL, D3DLOCK_READONLY) != 0) {
+            ok = 0;
+            break;
+        }
+        if (((FN_TexLockRect)cloneVt[19])(cloneTex, level, &dstRect, NULL, 0) != 0) {
+            ((FN_TexUnlockRect)origVt[20])(origTex, level);
+            ok = 0;
+            break;
+        }
+
+        copyRows = SkyIso_CopyRowsForLevel(&levelDesc);
+        rowBytes = (unsigned int)((srcRect.Pitch < dstRect.Pitch) ? srcRect.Pitch : dstRect.Pitch);
+        for (row = 0; row < copyRows; row++) {
+            unsigned char *src = (unsigned char*)srcRect.pBits + row * (unsigned int)srcRect.Pitch;
+            unsigned char *dst = (unsigned char*)dstRect.pBits + row * (unsigned int)dstRect.Pitch;
+            memcpy(dst, src, rowBytes);
+        }
+
+        ((FN_TexUnlockRect)cloneVt[20])(cloneTex, level);
+        ((FN_TexUnlockRect)origVt[20])(origTex, level);
+    }
+
+    if (!ok) {
+        SkyIso_ReleaseTexture(cloneTex);
+        return 0;
+    }
+
+    {
+        D3DLOCKED_RECT mutateRect;
+        if (((FN_TexLockRect)cloneVt[19])(cloneTex, 0, &mutateRect, NULL, 0) == 0) {
+            if (mutateRect.pBits && mutateRect.Pitch > 0) {
+                unsigned char *firstByte = (unsigned char*)mutateRect.pBits;
+                firstByte[0] ^= 0x01; /* 1-bit mutation to split texture hash identity */
+            }
+            ((FN_TexUnlockRect)cloneVt[20])(cloneTex, 0);
+        }
+    }
+
+    entry->isoTex = cloneTex;
+    entry->cloneReady = 1;
+    log_hex("SkyIso: cloned sky texture orig=", (unsigned int)entry->origTex);
+    log_hex("SkyIso: cloned sky texture iso =", (unsigned int)entry->isoTex);
+    return 1;
+}
+
+static int SkyIso_IsCandidateBaseDraw(WrappedDevice *self, unsigned int nv, unsigned int pc, unsigned int stage) {
+    if (!self->skyIsolationEnable || stage >= 8)
+        return 0;
+    if (self->curDeclPosType != D3DDECLTYPE_FLOAT3)
+        return 0;
+    if (!self->curTexture[stage])
+        return 0;
+    if (nv < self->skyCandidateMinVerts || pc < self->skyCandidateMinPrims)
+        return 0;
+    if (!mat4_approx_equal(self->savedView, s_identity4x4, 1e-5f))
+        return 0;
+    if (!mat4_approx_equal(self->savedWorld, s_identity4x4, 1e-5f))
+        return 0;
+    return 1;
+}
+
+static void *SkyIso_BindForDraw(WrappedDevice *self, unsigned int stage, unsigned int nv, unsigned int pc, int animatedTex0) {
+    void *origTex;
+    SkyIsoEntry *entry;
+    int isCandidateBase;
+    int warmupActive;
+    static int s_animatedSkipLogs = 0;
+    static int s_applyLogs = 0;
+
+    if (!self->skyIsolationEnable || stage >= 8)
+        return NULL;
+
+    if (!self->skyWarmupStarted && self->viewProjValid) {
+        self->skyWarmupStarted = 1;
+        self->skyWarmupStartScene = self->skySceneCounter;
+        log_int("SkyIso: warmup start scene=", (int)self->skyWarmupStartScene);
+        log_int("SkyIso: warmup scenes=", (int)self->skyWarmupScenes);
+    }
+
+    origTex = self->curTexture[stage];
+    if (!origTex)
+        return NULL;
+
+    isCandidateBase = SkyIso_IsCandidateBaseDraw(self, nv, pc, stage);
+    if (!isCandidateBase)
+        return NULL;
+
+    if (animatedTex0) {
+        if (s_animatedSkipLogs < 16) {
+            log_str("SkyIso: skip animated texture draw\r\n");
+            s_animatedSkipLogs++;
+        }
+        return NULL;
+    }
+
+    entry = SkyIso_FindOrCreateEntry(self, origTex, 1);
+    if (!entry)
+        return NULL;
+
+    warmupActive = SkyIso_IsWarmupActive(self);
+    if (warmupActive && !entry->candidate) {
+        entry->candidate = 1;
+        log_hex("SkyIso: candidate texture=", (unsigned int)origTex);
+    }
+
+    if (!entry->candidate)
+        return NULL;
+
+    if (!entry->cloneReady && !entry->cloneAttempted)
+        SkyIso_CloneTexture(self, entry);
+    if (!entry->cloneReady || !entry->isoTex)
+        return NULL;
+
+    {
+        typedef int (__stdcall *FN_SetTex)(void*, unsigned int, void*);
+        ((FN_SetTex)RealVtbl(self)[SLOT_SetTexture])(self->pReal, stage, entry->isoTex);
+    }
+
+    if (s_applyLogs < 32) {
+        log_hex("SkyIso: applied orig=", (unsigned int)origTex);
+        log_hex("SkyIso: applied iso =", (unsigned int)entry->isoTex);
+        s_applyLogs++;
+    }
+
+    return origTex;
+}
+
+static void SkyIso_RestoreAfterDraw(WrappedDevice *self, unsigned int stage, void *origTex) {
+    if (!origTex || stage >= 8)
+        return;
+    {
+        typedef int (__stdcall *FN_SetTex)(void*, unsigned int, void*);
+        ((FN_SetTex)RealVtbl(self)[SLOT_SetTexture])(self->pReal, stage, origTex);
+    }
+}
+
+static void TRL_ClearTexture0TransformState(WrappedDevice *self) {
+    typedef int (__stdcall *FN_SetTransform)(void*, unsigned int, float*);
+    typedef int (__stdcall *FN_SetTSS)(void*, unsigned int, unsigned int, unsigned int);
+    void **vt = RealVtbl(self);
+    float texMatrix[16];
+
+    mat4_identity(texMatrix);
+    ((FN_SetTransform)vt[SLOT_SetTransform])(self->pReal, D3DTS_TEXTURE0, texMatrix);
+    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0,
+        D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
+}
+
+static void TRL_ApplyTexture0TransformState(WrappedDevice *self) {
+    typedef int (__stdcall *FN_SetTransform)(void*, unsigned int, float*);
+    typedef int (__stdcall *FN_SetTSS)(void*, unsigned int, unsigned int, unsigned int);
+    void **vt = RealVtbl(self);
+    float texMatrix[16];
+
+    if (!TRL_BuildTexture0Transform(self, texMatrix)) {
+        TRL_ClearTexture0TransformState(self);
+        return;
+    }
+
+    ((FN_SetTransform)vt[SLOT_SetTransform])(self->pReal, D3DTS_TEXTURE0, texMatrix);
+    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0,
+        D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_COUNT2);
 }
 
 /* ---- Pinned Draw Helpers ---- */
@@ -903,6 +1575,9 @@ static void PinnedDraw_Capture(WrappedDevice *self) {
     pd->fpTex0 = fpTex0;
     pd->active = 1;
     pd->submittedThisFrame = 1;
+    pd->isViewSpace = mat4_approx_equal(self->savedView, s_identity4x4, 1e-6f);
+    pd->isShort4 = (self->curDeclPosType == D3DDECLTYPE_SHORT4) ? 1 : 0;
+    pd->posOff = self->s4PosOff;
 
     /* Save VS constants c0-c3 (WVP matrix at capture time) */
     for (i = 0; i < 16; i++) pd->wvpConst[i] = self->vsConst[i];
@@ -978,6 +1653,7 @@ static void PinnedDraw_ReplayMissing(WrappedDevice *self) {
 
     /* Begin a scene for the replay draws */
     ((FN_BeginScene)vt[SLOT_BeginScene])(self->pReal);
+    TRL_ClearTexture0TransformState(self);
 
     for (i = 0; i < self->pinnedDrawCount; i++) {
         PinnedDraw *pd = &self->pinnedDraws[i];
@@ -987,8 +1663,6 @@ static void PinnedDraw_ReplayMissing(WrappedDevice *self) {
         /* Restore state for this draw */
         if (pd->vertexDecl)
             ((FN_SetDecl)vt[SLOT_SetVertexDeclaration])(self->pReal, pd->vertexDecl);
-        if (pd->vertexShader)
-            ((FN_SetVS)vt[SLOT_SetVertexShader])(self->pReal, pd->vertexShader);
         if (pd->pixelShader)
             ((FN_SetPS)vt[SLOT_SetPixelShader])(self->pReal, pd->pixelShader);
         if (pd->vertexBuffer)
@@ -1010,26 +1684,53 @@ static void PinnedDraw_ReplayMissing(WrappedDevice *self) {
             int j;
 
             for (j = 0; j < 16; j++) { view[j] = gameView[j]; proj[j] = gameProj[j]; }
-            mat4_transpose(wvp_row, pd->wvpConst);
-            mat4_multiply(vp, view, proj);
-
-            if (self->vpInverseValid) {
-                mat4_multiply(world, wvp_row, self->cachedVPInverse);
+            if (pd->isViewSpace) {
+                for (j = 0; j < 16; j++) {
+                    world[j] = identity[j];
+                    view[j] = identity[j];
+                }
             } else {
-                for (j = 0; j < 16; j++) world[j] = identity[j];
+                mat4_transpose(wvp_row, pd->wvpConst);
+                mat4_multiply(vp, view, proj);
+
+                if (self->vpInverseValid) {
+                    mat4_multiply(world, wvp_row, self->cachedVPInverse);
+                } else {
+                    for (j = 0; j < 16; j++) world[j] = identity[j];
+                }
             }
 
-            ((FN_SetTransform)vt[SLOT_SetTransform])(self->pReal, D3DTS_WORLD, world);
-            ((FN_SetTransform)vt[SLOT_SetTransform])(self->pReal, D3DTS_VIEW, view);
-            ((FN_SetTransform)vt[SLOT_SetTransform])(self->pReal, D3DTS_PROJECTION, proj);
+            if (pd->isShort4 && pd->vertexBuffer && pd->vertexDecl) {
+                if (!S4_ExpandAndDraw(self, pd->vertexBuffer, pd->vbOffset, pd->vbStride,
+                                      pd->vertexDecl, pd->posOff,
+                                      pd->primType, pd->baseVertexIndex, pd->numVertices,
+                                      pd->startIndex, pd->primCount,
+                                      world, view, proj)) {
+                    ((FN_SetTransform)vt[SLOT_SetTransform])(self->pReal, D3DTS_WORLD, world);
+                    ((FN_SetTransform)vt[SLOT_SetTransform])(self->pReal, D3DTS_VIEW, view);
+                    ((FN_SetTransform)vt[SLOT_SetTransform])(self->pReal, D3DTS_PROJECTION, proj);
+                    ((FN_SetVS)vt[SLOT_SetVertexShader])(self->pReal, NULL);
+                    TRL_ApplyFFPDrawState(self, 0);
+                    ((FN_DIP)vt[SLOT_DrawIndexedPrimitive])(self->pReal,
+                        pd->primType, pd->baseVertexIndex, pd->minVertexIndex,
+                        pd->numVertices, pd->startIndex, pd->primCount);
+                }
+            } else {
+                ((FN_SetTransform)vt[SLOT_SetTransform])(self->pReal, D3DTS_WORLD, world);
+                ((FN_SetTransform)vt[SLOT_SetTransform])(self->pReal, D3DTS_VIEW, view);
+                ((FN_SetTransform)vt[SLOT_SetTransform])(self->pReal, D3DTS_PROJECTION, proj);
+                ((FN_SetVS)vt[SLOT_SetVertexShader])(self->pReal, NULL);
+                TRL_ApplyFFPDrawState(self, 0);
+                ((FN_DIP)vt[SLOT_DrawIndexedPrimitive])(self->pReal,
+                    pd->primType, pd->baseVertexIndex, pd->minVertexIndex,
+                    pd->numVertices, pd->startIndex, pd->primCount);
+            }
         }
-
-        /* Issue the draw */
-        ((FN_DIP)vt[SLOT_DrawIndexedPrimitive])(self->pReal,
-            pd->primType, pd->baseVertexIndex, pd->minVertexIndex,
-            pd->numVertices, pd->startIndex, pd->primCount);
         replayed++;
     }
+
+    if (self->lastVS)
+        ((FN_SetVS)vt[SLOT_SetVertexShader])(self->pReal, self->lastVS);
 
     ((FN_EndScene)vt[SLOT_EndScene])(self->pReal);
 
@@ -1235,6 +1936,35 @@ static void TRL_InjectLight(WrappedDevice *self) {
 
     ((FN_SetLight)vt[SLOT_SetLight])(self->pReal, 7, light);
     ((FN_LightEnable)vt[SLOT_LightEnable])(self->pReal, 7, 1);
+}
+
+/*
+ * Configure fixed-function texture and lighting state for null-VS draws.
+ * Use applyTex0Transform=1 on live draws, 0 on replay draws (non-animated).
+ */
+static void TRL_ApplyFFPDrawState(WrappedDevice *self, int applyTex0Transform) {
+    typedef int (__stdcall *FN_SetRS)(void*, unsigned int, unsigned int);
+    typedef int (__stdcall *FN_SetTSS)(void*, unsigned int, unsigned int, unsigned int);
+    void **vt = RealVtbl(self);
+
+    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
+    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_TEXCOORDINDEX, 0);
+    if (applyTex0Transform)
+        TRL_ApplyTexture0TransformState(self);
+    else
+        TRL_ClearTexture0TransformState(self);
+    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+
+    ((FN_SetRS)vt[SLOT_SetRenderState])(self->pReal, D3DRS_LIGHTING, 1);
+    ((FN_SetRS)vt[SLOT_SetRenderState])(self->pReal, D3DRS_AMBIENT, 0xFFFFFFFF);
+    ((FN_SetRS)vt[SLOT_SetRenderState])(self->pReal, D3DRS_COLORVERTEX, 1);
+    ((FN_SetRS)vt[SLOT_SetRenderState])(self->pReal, D3DRS_DIFFUSEMATERIALSOURCE, 1);
+    ((FN_SetRS)vt[SLOT_SetRenderState])(self->pReal, D3DRS_CULLMODE, 1);
 }
 
 /*
@@ -1617,8 +2347,6 @@ static int S4_ExpandAndDraw(WrappedDevice *self,
     typedef int (__stdcall *FN_SetDecl)(void*, void*);
     typedef int (__stdcall *FN_SetVS)(void*, void*);
     typedef int (__stdcall *FN_DIP)(void*, unsigned int, int, unsigned int, unsigned int, unsigned int, unsigned int);
-    typedef int (__stdcall *FN_SetRS)(void*, unsigned int, unsigned int);
-    typedef int (__stdcall *FN_SetTSS)(void*, unsigned int, unsigned int, unsigned int);
     void **vt = RealVtbl(self);
     void *expDecl;
     void *expVB;
@@ -1660,22 +2388,7 @@ static int S4_ExpandAndDraw(WrappedDevice *self,
     ((FN_SetTransform)vt[SLOT_SetTransform])(self->pReal, D3DTS_PROJECTION, proj);
     self->transformOverrideActive = 0;
 
-    /* FFP texture stage: modulate texture × diffuse, use texcoord set 0 */
-    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_COLOROP, D3DTOP_MODULATE);
-    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
-    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
-    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
-    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
-    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
-    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_TEXCOORDINDEX, 0);
-    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 1, D3DTSS_COLOROP, D3DTOP_DISABLE);
-
-    /* FFP lighting + culling */
-    ((FN_SetRS)vt[SLOT_SetRenderState])(self->pReal, D3DRS_LIGHTING, 1);
-    ((FN_SetRS)vt[SLOT_SetRenderState])(self->pReal, D3DRS_AMBIENT, 0xFFFFFFFF);
-    ((FN_SetRS)vt[SLOT_SetRenderState])(self->pReal, D3DRS_COLORVERTEX, 1);
-    ((FN_SetRS)vt[SLOT_SetRenderState])(self->pReal, D3DRS_DIFFUSEMATERIALSOURCE, 1);
-    ((FN_SetRS)vt[SLOT_SetRenderState])(self->pReal, D3DRS_CULLMODE, 1);
+    TRL_ApplyFFPDrawState(self, 1);
 
     /* Draw with bvi=0 since expanded VB starts at vertex 0 */
     ((FN_DIP)vt[SLOT_DrawIndexedPrimitive])(self->pReal, pt, 0, 0, nv, si, pc);
@@ -1754,7 +2467,6 @@ static void DrawCache_Record(WrappedDevice *self, unsigned int pt, int bvi,
 
     {
         CachedDraw *c = &s_drawCache[slot];
-        float wvp_row[16];
 
         /* Release previously held resources before overwriting the slot */
         if (c->active) DrawCache_ReleaseEntry(c);
@@ -1773,20 +2485,10 @@ static void DrawCache_Record(WrappedDevice *self, unsigned int pt, int bvi,
         c->streamStr = self->streamStride[0];
         c->isShort4 = (self->curDeclPosType == D3DDECLTYPE_SHORT4) ? 1 : 0;
         c->posOff = self->s4PosOff;
+        c->isViewSpace = mat4_approx_equal(self->savedView, s_identity4x4, 1e-6f);
         c->lastSeenFrame = self->frameCount;
         c->active = 1;
-
-        /* Compute and save world matrix (same logic as TRL_ApplyTransformOverrides) */
-        mat4_transpose(wvp_row, &self->vsConst[VS_REG_WVP_START * 4]);
-        if (self->curDeclIsSkinned) {
-            const float *src = &self->vsConst[4 * 4];
-            c->world[0]  = src[0]; c->world[1]  = src[4]; c->world[2]  = src[8];  c->world[3]  = 0.0f;
-            c->world[4]  = src[1]; c->world[5]  = src[5]; c->world[6]  = src[9];  c->world[7]  = 0.0f;
-            c->world[8]  = src[2]; c->world[9]  = src[6]; c->world[10] = src[10]; c->world[11] = 0.0f;
-            c->world[12] = src[3]; c->world[13] = src[7]; c->world[14] = src[11]; c->world[15] = 1.0f;
-        } else {
-            mat4_multiply(c->world, wvp_row, self->cachedVPInverse);
-        }
+        memcpy(c->world, self->savedWorld, 64);
     }
 }
 
@@ -1796,22 +2498,37 @@ static void DrawCache_Replay(WrappedDevice *self) {
     typedef int (__stdcall *FN_SetIndices)(void*, void*);
     typedef int (__stdcall *FN_SetTexture)(void*, unsigned int, void*);
     typedef int (__stdcall *FN_SetDecl)(void*, void*);
+    typedef int (__stdcall *FN_SetVS)(void*, void*);
     typedef int (__stdcall *FN_DIP)(void*, unsigned int, int, unsigned int, unsigned int, unsigned int, unsigned int);
     void **vt = RealVtbl(self);
     float view[16], proj[16];
+    float identityView[16];
     const float *gameView = (const float *)TRL_VIEW_MATRIX_ADDR;
     const float *gameProj = (const float *)TRL_PROJ_MATRIX_ADDR;
     int i, replayed = 0;
+    float savedTex0Scroll[4];
+    float savedTex0Transform[16];
+    void *savedTex0VS;
+    int savedTex0ScrollValid;
+    int savedTex0TransformValid;
 
     /* Read current view/proj from game memory */
     for (i = 0; i < 16; i++) { view[i] = gameView[i]; proj[i] = gameProj[i]; }
+    mat4_identity(identityView);
 
-    /* Set current view/proj once */
-    ((FN_SetTransform)vt[SLOT_SetTransform])(self->pReal, D3DTS_VIEW, view);
-    ((FN_SetTransform)vt[SLOT_SetTransform])(self->pReal, D3DTS_PROJECTION, proj);
+    for (i = 0; i < 4; i++)
+        savedTex0Scroll[i] = self->tex0ScrollConst[i];
+    for (i = 0; i < 16; i++)
+        savedTex0Transform[i] = self->tex0TransformConst[i];
+    savedTex0VS = self->tex0TransformVS;
+    savedTex0ScrollValid = self->tex0ScrollValid;
+    savedTex0TransformValid = self->tex0TransformValid;
+    TRL_ResetTexture0AnimationState(self);
+    TRL_ClearTexture0TransformState(self);
 
     for (i = 0; i < s_drawCacheCount; i++) {
         CachedDraw *c = &s_drawCache[i];
+        float *viewForDraw;
         /* Replay draws that were active recently but missing this frame */
         if (!c->active) continue;
         if (c->lastSeenFrame == self->frameCount) continue; /* seen this frame, skip */
@@ -1821,6 +2538,7 @@ static void DrawCache_Replay(WrappedDevice *self) {
         }
         /* Skip if resources are gone (VB/IB could be freed) */
         if (!c->vb || !c->ib || !c->decl) continue;
+        viewForDraw = c->isViewSpace ? identityView : view;
 
         /* Restore state and replay */
         ((FN_SetIndices)vt[SLOT_SetIndices])(self->pReal, c->ib);
@@ -1829,21 +2547,36 @@ static void DrawCache_Replay(WrappedDevice *self) {
         if (c->isShort4 && c->vb && c->decl) {
             /* SHORT4 draw: expand and draw in FFP mode */
             S4_ExpandAndDraw(self, c->vb, c->streamOff, c->streamStr, c->decl, c->posOff,
-                c->pt, c->bvi, c->nv, c->si, c->pc, c->world, view, proj);
+                c->pt, c->bvi, c->nv, c->si, c->pc, c->world, viewForDraw, proj);
         } else {
             ((FN_SetTransform)vt[SLOT_SetTransform])(self->pReal, D3DTS_WORLD, c->world);
+            ((FN_SetTransform)vt[SLOT_SetTransform])(self->pReal, D3DTS_VIEW, viewForDraw);
+            ((FN_SetTransform)vt[SLOT_SetTransform])(self->pReal, D3DTS_PROJECTION, proj);
             ((FN_SetStreamSrc)vt[SLOT_SetStreamSource])(self->pReal, 0, c->vb, c->streamOff, c->streamStr);
             if (c->decl) ((FN_SetDecl)vt[SLOT_SetVertexDeclaration])(self->pReal, c->decl);
+            ((FN_SetVS)vt[SLOT_SetVertexShader])(self->pReal, NULL);
+            TRL_ApplyFFPDrawState(self, 0);
             ((FN_DIP)vt[SLOT_DrawIndexedPrimitive])(self->pReal, c->pt, c->bvi, c->mi, c->nv, c->si, c->pc);
         }
         replayed++;
     }
+
+    if (self->lastVS)
+        ((FN_SetVS)vt[SLOT_SetVertexShader])(self->pReal, self->lastVS);
 
     if (!s_cacheLogOnce && replayed > 0) {
         log_int("DrawCache: replayed ", replayed);
         log_str(" culled draws\r\n");
         s_cacheLogOnce = 1;
     }
+
+    self->tex0TransformVS = savedTex0VS;
+    self->tex0ScrollValid = savedTex0ScrollValid;
+    self->tex0TransformValid = savedTex0TransformValid;
+    for (i = 0; i < 4; i++)
+        self->tex0ScrollConst[i] = savedTex0Scroll[i];
+    for (i = 0; i < 16; i++)
+        self->tex0TransformConst[i] = savedTex0Transform[i];
 }
 #endif /* DRAW_CACHE_ENABLED */
 
@@ -1874,6 +2607,7 @@ static unsigned long __stdcall WD_Release(WrappedDevice *self) {
         PinnedDraw_ReleaseAll(self);
         /* Release S4 expanded VBs — owned COM refs, must Release before HeapFree */
         S4_FlushVBCache(self);
+        SkyIso_Clear(self);
         /* Clear draw cache — releases COM refs held for anchor mesh replay */
 #if DRAW_CACHE_ENABLED
         DrawCache_Clear();
@@ -2049,6 +2783,8 @@ static int __stdcall WD_Reset(WrappedDevice *self, void *pPresentParams) {
     self->psConstDirty = 0;
     self->ffpActive = 0;
     self->vpInverseValid = 0;
+    TRL_ResetTexture0AnimationState(self);
+    SkyIso_Clear(self);
     /* Stripped declarations are device resources — release before Reset */
     {
         typedef unsigned long (__stdcall *FN_Rel)(void*);
@@ -2172,6 +2908,7 @@ static int __stdcall WD_BeginScene(WrappedDevice *self) {
     self->ffpSetup = 0;
     self->ffpActive = 0;
     self->sceneCount++;
+    self->skySceneCounter++;
 
     /* Defer memory patches until a level is loaded — viewProjValid is set
      * when the game writes VS constants (c0-c3 or c12-c15), which only
@@ -2287,36 +3024,24 @@ static int __stdcall WD_DrawPrimitive(WrappedDevice *self, unsigned int pt, unsi
             self->drawsSkippedQuad++;
         } else {
             typedef int (__stdcall *FN_SetVS)(void*, void*);
-            typedef int (__stdcall *FN_SetRS)(void*, unsigned int, unsigned int);
-            typedef int (__stdcall *FN_SetTSS)(void*, unsigned int, unsigned int, unsigned int);
             void **vt = RealVtbl(self);
 
             TRL_PrepDraw(self);
+            if (self->curDeclPosType == D3DDECLTYPE_FLOAT3 &&
+                TRL_GetEffectiveFloat3Route(self) == FLOAT3_ROUTE_SHADER) {
+                /* Shader route for FLOAT3 when vertex capture is effective. */
+                hr = ((FN)vt[SLOT_DrawPrimitive])(self->pReal, pt, sv, pc);
+            } else {
+                /* Legacy null-VS fallback path. */
+                ((FN_SetVS)vt[SLOT_SetVertexShader])(self->pReal, NULL);
+                TRL_ApplyFFPDrawState(self, 1);
+                hr = ((FN)vt[SLOT_DrawPrimitive])(self->pReal, pt, sv, pc);
+                if (self->lastVS)
+                    ((FN_SetVS)vt[SLOT_SetVertexShader])(self->pReal, self->lastVS);
+            }
 
-            /* Null VS so Remix processes as FFP (useVertexCapture=False) */
-            ((FN_SetVS)vt[SLOT_SetVertexShader])(self->pReal, NULL);
-
-            /* FFP texture + lighting state */
-            ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_COLOROP, D3DTOP_MODULATE);
-            ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
-            ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
-            ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
-            ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
-            ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
-            ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_TEXCOORDINDEX, 0);
-            ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 1, D3DTSS_COLOROP, D3DTOP_DISABLE);
-            ((FN_SetRS)vt[SLOT_SetRenderState])(self->pReal, D3DRS_LIGHTING, 1);
-            ((FN_SetRS)vt[SLOT_SetRenderState])(self->pReal, D3DRS_AMBIENT, 0xFFFFFFFF);
-            ((FN_SetRS)vt[SLOT_SetRenderState])(self->pReal, D3DRS_COLORVERTEX, 1);
-            ((FN_SetRS)vt[SLOT_SetRenderState])(self->pReal, D3DRS_DIFFUSEMATERIALSOURCE, 1);
-            ((FN_SetRS)vt[SLOT_SetRenderState])(self->pReal, D3DRS_CULLMODE, 1);
-
-            hr = ((FN)vt[SLOT_DrawPrimitive])(self->pReal, pt, sv, pc);
-
-            /* Restore VS */
-            if (self->lastVS)
-                ((FN_SetVS)vt[SLOT_SetVertexShader])(self->pReal, self->lastVS);
-
+            if (self->curDeclPosType == D3DDECLTYPE_FLOAT3)
+                self->drawsF3++;
             self->drawsProcessed++;
         }
     } else {
@@ -2344,6 +3069,11 @@ static int __stdcall WD_DrawIndexedPrimitive(WrappedDevice *self,
 {
     typedef int (__stdcall *FN)(void*, unsigned int, int, unsigned int, unsigned int, unsigned int, unsigned int);
     int hr;
+    int animatedTex0 = 0;
+    int float3Route = FLOAT3_ROUTE_NULL_VS;
+    int shaderRouteFloat3 = 0;
+    void *skyIsoOrigTex = NULL;
+    unsigned int skyStage = (unsigned int)self->albedoStage;
     self->drawCallCount++;
 
     self->drawsTotal++;
@@ -2358,9 +3088,13 @@ static int __stdcall WD_DrawIndexedPrimitive(WrappedDevice *self,
             self->drawsSkippedQuad++;
         } else {
             TRL_PrepDraw(self);
-#if DRAW_CACHE_ENABLED
-            DrawCache_Record(self, pt, bvi, mi, nv, si, pc);
-#endif
+            animatedTex0 = TRL_DrawHasAnimatedTexture0(self);
+            if (self->curDeclPosType == D3DDECLTYPE_FLOAT3)
+                float3Route = TRL_GetEffectiveFloat3Route(self);
+
+            if (self->curDeclPosType == D3DDECLTYPE_FLOAT3)
+                skyIsoOrigTex = SkyIso_BindForDraw(self, skyStage, nv, pc, animatedTex0);
+
             /* SHORT4 positions: expand to FLOAT3 on CPU, draw in FFP mode.
              * This eliminates useVertexCapture and gives stable position hashes. */
             if (self->curDeclPosType == D3DDECLTYPE_SHORT4 && self->streamVB[0] && self->lastDecl) {
@@ -2375,49 +3109,35 @@ static int __stdcall WD_DrawIndexedPrimitive(WrappedDevice *self,
                 }
                 self->drawsS4++;
             } else {
-                /* FLOAT3 draws (characters, hair, foliage): null VS so Remix
-                 * processes them as FFP. Positions are already in view space
-                 * (World*View pre-applied by CPU); TRL_PrepDraw set W=I, V=I,
-                 * P=game_proj. Without this, Remix skips shader-bound draws
-                 * when useVertexCapture=False. */
-                {
+                if (self->curDeclPosType == D3DDECLTYPE_FLOAT3 && float3Route == FLOAT3_ROUTE_SHADER) {
+                    /* Shader route for FLOAT3: keep VS/PS bound and avoid FFP stage overrides. */
+                    hr = ((FN)RealVtbl(self)[SLOT_DrawIndexedPrimitive])(self->pReal, pt, bvi, mi, nv, si, pc);
+                    shaderRouteFloat3 = 1;
+                } else {
+                    /* Legacy null-VS fallback for FLOAT3 when vertex capture is off (or forced). */
                     typedef int (__stdcall *FN_SetVS)(void*, void*);
-                    typedef int (__stdcall *FN_SetRS)(void*, unsigned int, unsigned int);
-                    typedef int (__stdcall *FN_SetTSS)(void*, unsigned int, unsigned int, unsigned int);
                     void **vt = RealVtbl(self);
-
-                    /* Null vertex shader for FFP path */
                     ((FN_SetVS)vt[SLOT_SetVertexShader])(self->pReal, NULL);
-
-                    /* FFP texture stage: modulate texture × diffuse */
-                    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_COLOROP, D3DTOP_MODULATE);
-                    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
-                    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
-                    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
-                    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
-                    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
-                    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 0, D3DTSS_TEXCOORDINDEX, 0);
-                    ((FN_SetTSS)vt[SLOT_SetTextureStageState])(self->pReal, 1, D3DTSS_COLOROP, D3DTOP_DISABLE);
-
-                    /* FFP lighting */
-                    ((FN_SetRS)vt[SLOT_SetRenderState])(self->pReal, D3DRS_LIGHTING, 1);
-                    ((FN_SetRS)vt[SLOT_SetRenderState])(self->pReal, D3DRS_AMBIENT, 0xFFFFFFFF);
-                    ((FN_SetRS)vt[SLOT_SetRenderState])(self->pReal, D3DRS_COLORVERTEX, 1);
-                    ((FN_SetRS)vt[SLOT_SetRenderState])(self->pReal, D3DRS_DIFFUSEMATERIALSOURCE, 1);
-                    ((FN_SetRS)vt[SLOT_SetRenderState])(self->pReal, D3DRS_CULLMODE, 1);
-
+                    TRL_ApplyFFPDrawState(self, 1);
                     hr = ((FN)vt[SLOT_DrawIndexedPrimitive])(self->pReal, pt, bvi, mi, nv, si, pc);
-
-                    /* Restore vertex shader */
                     if (self->lastVS)
                         ((FN_SetVS)vt[SLOT_SetVertexShader])(self->pReal, self->lastVS);
                 }
                 self->drawsF3++;
             }
+
+            if (skyIsoOrigTex)
+                SkyIso_RestoreAfterDraw(self, skyStage, skyIsoOrigTex);
+
+#if DRAW_CACHE_ENABLED
+            if (!animatedTex0 && !shaderRouteFloat3)
+                DrawCache_Record(self, pt, bvi, mi, nv, si, pc);
+#endif
             self->drawsProcessed++;
 
-            /* Draw call replay cache: capture during early frames, mark as submitted always */
-            if (self->frameCount < PINNED_CAPTURE_FRAMES && !self->pinnedCaptureComplete) {
+            /* Draw call replay cache: skip shader-route FLOAT3 draws to avoid stale replays. */
+            if (!animatedTex0 && !shaderRouteFloat3 &&
+                self->frameCount < PINNED_CAPTURE_FRAMES && !self->pinnedCaptureComplete) {
                 PinnedDraw *pd;
                 int idx = self->pinnedDrawCount; /* will be set if capture succeeds */
                 PinnedDraw_Capture(self);
@@ -2432,7 +3152,8 @@ static int __stdcall WD_DrawIndexedPrimitive(WrappedDevice *self,
                     pd->primCount = pc;
                 }
             }
-            PinnedDraw_MarkSubmitted(self);
+            if (!animatedTex0 && !shaderRouteFloat3)
+                PinnedDraw_MarkSubmitted(self);
         }
     } else {
         /* No valid transforms — suppress to prevent empty position hash */
@@ -2723,15 +3444,41 @@ static int __stdcall WD_SetVertexShaderConstantF(WrappedDevice *self,
 {
     typedef int (__stdcall *FN)(void*, unsigned int, float*, unsigned int);
     unsigned int i;
+    unsigned int endReg = startReg + count;
+    unsigned int reg;
+    unsigned int j;
 
     if (pData && startReg + count <= 256) {
         for (i = 0; i < count * 4; i++) {
             self->vsConst[(startReg * 4) + i] = pData[i];
         }
 
+        if (self->lastVS) {
+            if (startReg <= VS_REG_TEX0_SCROLL && endReg > VS_REG_TEX0_SCROLL) {
+                unsigned int srcBase = (VS_REG_TEX0_SCROLL - startReg) * 4;
+                for (j = 0; j < 4; j++)
+                    self->tex0ScrollConst[j] = pData[srcBase + j];
+                self->tex0ScrollValid = 1;
+                self->tex0TransformVS = self->lastVS;
+            }
+            if (startReg < VS_REG_TEX0_XFORM_END && endReg > VS_REG_TEX0_XFORM_START) {
+                unsigned int copyStart = startReg;
+                unsigned int copyEnd = endReg;
+                if (copyStart < VS_REG_TEX0_XFORM_START) copyStart = VS_REG_TEX0_XFORM_START;
+                if (copyEnd > VS_REG_TEX0_XFORM_END) copyEnd = VS_REG_TEX0_XFORM_END;
+                for (reg = copyStart; reg < copyEnd; reg++) {
+                    unsigned int dstBase = (reg - VS_REG_TEX0_XFORM_START) * 4;
+                    unsigned int srcBase = (reg - startReg) * 4;
+                    for (j = 0; j < 4; j++)
+                        self->tex0TransformConst[dstBase + j] = pData[srcBase + j];
+                }
+                self->tex0TransformValid = 1;
+                self->tex0TransformVS = self->lastVS;
+            }
+        }
+
         /* Dirty tracking: WVP (c0-c3), World (c4-c7), or ViewProject (c12-c15) triggers recompute */
         {
-            unsigned int endReg = startReg + count;
             if (startReg < VS_REG_WVP_END && endReg > VS_REG_WVP_START) {
                 self->viewProjDirty = 1;
                 self->worldDirty = 1;
@@ -3939,6 +4686,7 @@ WrappedDevice* WrappedDevice_Create(void *pRealDevice) {
     w->lastVS = NULL;
     w->lastPS = NULL;
     w->viewProjValid = 0;
+    TRL_ResetTexture0AnimationState(w);
     w->lastDecl = NULL;
     w->curDeclIsSkinned = 0;
     w->curDeclHasTexcoord = 0;
@@ -3964,32 +4712,66 @@ WrappedDevice* WrappedDevice_Create(void *pRealDevice) {
     w->strippedDeclCount = 0;
     w->pinnedDrawCount = 0;
     w->pinnedCaptureComplete = 0;
+    w->useVertexCaptureEffective = 1;
+    w->float3RoutingMode = FLOAT3_ROUTE_AUTO;
+    w->skyIsolationEnable = 1;
+    w->skyCandidateMinVerts = 12000;
+    w->skyCandidateMinPrims = 30;
+    w->skyWarmupScenes = 300;
+    w->skyWarmupStartScene = 0;
+    w->skyWarmupStarted = 0;
+    w->skyIsoCount = 0;
+    w->skySceneCounter = 0;
     { int ts; for (ts = 0; ts < 8; ts++) w->diagTexUniq[ts] = 0; }
     w->createTick = GetTickCount();
     w->diagLoggedFrames = 0;
 
-    /* Read AlbedoStage from INI */
+    /* Read proxy.ini config */
     {
-        char iniBuf[260];
-        extern HINSTANCE g_hInstance;
-        int i, lastSlash = -1;
-        GetModuleFileNameA(g_hInstance, iniBuf, 260);
-        for (i = 0; iniBuf[i]; i++) {
-            if (iniBuf[i] == '\\' || iniBuf[i] == '/') lastSlash = i;
-        }
-        if (lastSlash >= 0) {
-            const char *fn = "proxy.ini";
-            int p = lastSlash + 1, j;
-            for (j = 0; fn[j]; j++) iniBuf[p++] = fn[j];
-            iniBuf[p] = '\0';
-        }
+        char iniBuf[MAX_PATH];
+        char float3Mode[32];
+        int skyEnable;
+        int skyMinVerts;
+        int skyMinPrims;
+        int skyWarmup;
+
+        get_dll_sibling_path_local(iniBuf, MAX_PATH, "proxy.ini");
         w->albedoStage = GetPrivateProfileIntA("FFP", "AlbedoStage", 0, iniBuf);
         if (w->albedoStage < 0 || w->albedoStage > 7) w->albedoStage = 0;
+
+        GetPrivateProfileStringA("FFP", "Float3RoutingMode", "auto", float3Mode, 32, iniBuf);
+        w->float3RoutingMode = parse_float3_routing_mode(float3Mode);
+
+        skyEnable = GetPrivateProfileIntA("Sky", "EnableIsolation", 1, iniBuf);
+        skyMinVerts = GetPrivateProfileIntA("Sky", "CandidateMinVerts", 12000, iniBuf);
+        skyMinPrims = GetPrivateProfileIntA("Sky", "CandidateMinPrims", 30, iniBuf);
+        skyWarmup = GetPrivateProfileIntA("Sky", "WarmupScenes", 300, iniBuf);
+
+        if (skyMinVerts < 0) skyMinVerts = 0;
+        if (skyMinPrims < 0) skyMinPrims = 0;
+        if (skyWarmup < 0) skyWarmup = 0;
+
+        w->skyIsolationEnable = skyEnable ? 1 : 0;
+        w->skyCandidateMinVerts = (unsigned int)skyMinVerts;
+        w->skyCandidateMinPrims = (unsigned int)skyMinPrims;
+        w->skyWarmupScenes = (unsigned int)skyWarmup;
     }
+    w->useVertexCaptureEffective = TRL_ReadEffectiveUseVertexCapture();
 
     log_str("WrappedDevice created with shader passthrough + transform override\r\n");
     log_int("  Diag delay (ms): ", DIAG_DELAY_MS);
     log_int("  AlbedoStage: ", w->albedoStage);
+    if (w->float3RoutingMode == FLOAT3_ROUTE_AUTO) log_str("  Float3RoutingMode: auto\r\n");
+    if (w->float3RoutingMode == FLOAT3_ROUTE_NULL_VS) log_str("  Float3RoutingMode: null_vs\r\n");
+    if (w->float3RoutingMode == FLOAT3_ROUTE_SHADER) log_str("  Float3RoutingMode: shader\r\n");
+    if (TRL_GetEffectiveFloat3Route(w) == FLOAT3_ROUTE_SHADER)
+        log_str("  Float3Route effective: shader\r\n");
+    else
+        log_str("  Float3Route effective: null_vs\r\n");
+    log_int("  SkyIsolation: ", w->skyIsolationEnable);
+    log_int("  SkyCandidateMinVerts: ", (int)w->skyCandidateMinVerts);
+    log_int("  SkyCandidateMinPrims: ", (int)w->skyCandidateMinPrims);
+    log_int("  SkyWarmupScenes: ", (int)w->skyWarmupScenes);
     log_hex("  Real device: ", (unsigned int)pRealDevice);
     log_hex("  View matrix addr: ", TRL_VIEW_MATRIX_ADDR);
     log_hex("  Proj matrix addr: ", TRL_PROJ_MATRIX_ADDR);

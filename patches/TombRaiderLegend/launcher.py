@@ -58,7 +58,7 @@ def capture_checkpoint():
 
 
 def set_graphics_config():
-    """Set TRL registry to skip the setup dialog on launch."""
+    """Set TRL registry to skip the setup dialog with water FX enabled."""
     import winreg
     gfx_path = r"Software\Crystal Dynamics\Tomb Raider: Legend\Graphics"
     try:
@@ -77,7 +77,7 @@ def set_graphics_config():
             "Fullscreen": 1, "Width": 3840, "Height": 2160, "Refresh": 240,
             "EnableFSAA": 0, "EnableFullscreenEffects": 0,
             "EnableDepthOfField": 0, "EnableVSync": 0, "EnableShadows": 0,
-            "EnableWaterFX": 0, "EnableReflection": 0, "UseShader20": 0,
+            "EnableWaterFX": 1, "EnableReflection": 0, "UseShader20": 0,
             "UseShader30": 0, "BestTextureFilter": 2,
             "DisableHardwareVP": 0, "Disable32BitTextures": 0,
             "ExtendedDialog": 1, "AdapterID": 0, "DisablePureDevice": 0,
@@ -198,26 +198,18 @@ def attach_livetools():
 
 def build_and_deploy():
     """Build the proxy DLL and deploy to game directory."""
-    proxy_dir = SCRIPT_DIR / "proxy"
-    build_bat = proxy_dir / "build.bat"
-    if not build_bat.exists():
-        print(f"ERROR: build.bat not found: {build_bat}")
-        sys.exit(1)
+    from run import build_proxy_bundle
 
-    print("=== Building proxy ===")
-    r = subprocess.run(str(build_bat), capture_output=True, text=True,
-                       shell=True, cwd=str(proxy_dir))
-    print(r.stdout)
-    if r.returncode != 0:
-        print(f"BUILD FAILED:\n{r.stderr}")
+    try:
+        build_proxy_bundle(
+            proxy_dir=SCRIPT_DIR / "proxy",
+            proxy_ini_path=SCRIPT_DIR / "proxy" / "proxy.ini",
+            rtx_conf_path=SCRIPT_DIR / "rtx.conf",
+            game_dir=GAME_DIR,
+        )
+    except Exception as exc:
+        print(f"ERROR: {exc}")
         sys.exit(1)
-
-    shutil.copy2(str(proxy_dir / "d3d9.dll"), str(GAME_DIR / "d3d9.dll"))
-    shutil.copy2(str(proxy_dir / "proxy.ini"), str(GAME_DIR / "proxy.ini"))
-    rtx_conf = SCRIPT_DIR / "rtx.conf"
-    if rtx_conf.exists():
-        shutil.copy2(str(rtx_conf), str(GAME_DIR / "rtx.conf"))
-    print(f"Deployed proxy to {GAME_DIR.name}/")
 
 
 def main():

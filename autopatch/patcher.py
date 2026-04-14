@@ -5,15 +5,15 @@ import re
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PROXY_SRC = REPO_ROOT / "proxy" / "d3d9_device.c"
-PROXY_DIR = REPO_ROOT / "proxy"
-GAME_DIR = REPO_ROOT / "Tomb Raider Legend"
+PROXY_DIR = REPO_ROOT / "patches" / "TombRaiderLegend" / "proxy"
+PROXY_SRC = PROXY_DIR / "d3d9_device.c"
 
 sys.path.insert(0, str(REPO_ROOT))
+from config import GAME_DIR
+from patches.TombRaiderLegend.run import build_proxy_bundle
 
 
 def apply_runtime(addr: int, patch_bytes: bytes) -> bool:
@@ -146,19 +146,15 @@ def promote_to_source(addr: int, patch_bytes: bytes, description: str) -> bool:
 
 def build_and_deploy() -> bool:
     """Build the proxy DLL and deploy to the game directory."""
-    build_bat = PROXY_DIR / "build.bat"
-    result = subprocess.run(
-        str(build_bat), capture_output=True, text=True,
-        shell=True, cwd=str(PROXY_DIR), timeout=60,
-    )
-    if result.returncode != 0:
-        print(f"[patcher] BUILD FAILED:\n{result.stderr}")
+    try:
+        build_proxy_bundle(
+            proxy_dir=PROXY_DIR,
+            proxy_ini_path=PROXY_DIR / "proxy.ini",
+            rtx_conf_path=REPO_ROOT / "patches" / "TombRaiderLegend" / "rtx.conf",
+            game_dir=GAME_DIR,
+        )
+    except Exception as exc:
+        print(f"[patcher] BUILD FAILED:\n{exc}")
         return False
-
-    # Deploy
-    dll_src = PROXY_DIR / "d3d9.dll"
-    ini_src = PROXY_DIR / "proxy.ini"
-    shutil.copy2(str(dll_src), str(GAME_DIR / "d3d9.dll"))
-    shutil.copy2(str(ini_src), str(GAME_DIR / "proxy.ini"))
     print("[patcher] Built and deployed proxy to game directory")
     return True
