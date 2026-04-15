@@ -1,6 +1,6 @@
 # TRL RTX Remix — Live Whiteboard
 
-**Updated:** 2026-04-13 · **Builds:** 001–077 (003–015, 034, 043, 048–063 not preserved)  
+**Updated:** 2026-04-15 · **Builds:** 001–077 (003–015, 034, 043, 048–063 not preserved)  
 **Goal:** Stable hashes, full geometry submission, Remix lights anchored to stage geometry
 
 ---
@@ -77,12 +77,17 @@ Every culling mechanism discovered and its patch status:
 | 23. Null-check guard | 0xEDF9E3 | Crashes on uninitialized pointer during extended scene loads | Yes — trampoline patched | 045-063 |
 | 24. ProcessPendingRemovals stale field | FUN_00ProcessPendingRemovals | Stale `field_48` causes crash at 0xEE88AD | Yes — patched | 045-063 |
 | 25. MeshSubmit visibility gate | MeshSubmit_VisibilityGate | Pre-DIP visibility check — rejects meshes before draw | Yes — patched to return 0 | 045-063 |
-| 26. Sector already-rendered skip | Unknown | Skips sector objects already flagged as rendered this frame | Yes — NOPed | 045-063 |
-| 27. Post-sector bitmask/distance culls | Unknown | Distance + bitmask checks after sector traversal | Yes — NOPed | 045-063 |
+| 26. Sector already-rendered skip | 0x46B7F2 | Skips sector objects already flagged as rendered this frame | Yes — NOPed | 045-063 |
+| 27. Post-sector bitmask/distance culls | 0x40E30F, 0x40E3B0 | Distance + bitmask checks after sector traversal | Yes — NOPed | 045-063 |
 | 28. Stream unload gate | 0x415C51 | Unloads mesh streams on camera movement | Yes — NOPed | 045-063 |
 | 29. Mesh eviction | SectorEviction (×2) + ObjectTracker_Evict | Removes meshes from scene tracking on eviction | Yes — all 3 NOPed | 045-063 |
-| 30. Post-sector loop | Unknown | Secondary loop after main sector pass | Yes — enabled | 045-063 |
+| 30. Post-sector loop | 0xF12016 (enable flag), 0x10024E8 (gate) | Secondary loop after main sector pass | Yes — enabled | 045-063 |
 | 31. **Render queue frustum culler** | **0x40C430 (RenderQueue_FrustumCull)** | **Layer 3 recursive BVH frustum cull — drops objects outside view frustum** | **Yes — JMP → 0x40C390 (uncull path)** | **072** |
+| 32. Frustum screen-size rejection | 0x46C242, 0x46C25B | Rejects objects whose screen footprint is too small in sector renderer | Yes — NOPed | 045-063 |
+| 33. SectorPortalVisibility resets | 4 write sites | Per-frame portal visibility state resets | Yes — all 4 NOPed | 045-063 |
+| 34. Sector_SubmitObject gates | 0x40C666, 0x40C68B | Pre-submission visibility gates inside object submit path | Yes — NOPed | 045-063 |
+| 35. Level writers | 0x46CCB4, 0x4E6DFA | Writes that restrict level/sector geometry from being submitted | Yes — NOPed | 045-063 |
+| 36. Null crash guard (scene traversal) | 0x40D2AC | Code-cave guard for null+0x20 deref in FUN_00402D290 during scene traversal (different from Layer 23) | Yes — trampoline patched | 076 |
 
 ---
 
