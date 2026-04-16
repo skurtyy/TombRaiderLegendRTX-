@@ -17,7 +17,7 @@
 | Automated test pipeline | DONE | Two-phase (hash debug + clean render), randomized movement |
 | Input delivery to DirectInput game | DONE | Scancode flag fix (build 018) |
 | Backface culling disabled | DONE | D3DCULL_NONE + cull globals stamped |
-| Frustum distance culling disabled | DONE | Threshold -1e30 + 7 NOP jumps + RET at 0x407150 |
+| Frustum distance culling disabled | DONE | Threshold -1e30 + 11 NOP jumps inside 0x407150 (no RET — full function executes with all exits NOPed) |
 | Sector/portal visibility disabled | DONE | NOPs at 0x46C194 + 0x46C19D, 65x draw increase |
 | Light frustum rejection disabled | DONE | NOP at 0x60CE20 |
 | Light visibility pre-check disabled | DONE | `Light_VisibilityTest` at 0x60B050 → `mov al,1; ret 4` (build 031) |
@@ -53,7 +53,7 @@ Every culling mechanism discovered and its patch status:
 | Layer | Address(es) | What It Does | Patched? | Build Added |
 |-------|-------------|--------------|----------|-------------|
 | 1. Frustum distance threshold | 0xEFDD64 | Float constant (16.0f) — objects closer than threshold culled | Yes — stamped to -1e30f per BeginScene | 016 |
-| 2. Per-object frustum function | 0x407150 | `SceneTraversal_CullAndSubmit` — RET kills entire function | Yes — `ret` at entry | 016 |
+| 2. Per-object frustum function | 0x407150 | `SceneTraversal_CullAndSubmit` — 11 NOP jumps inside function; no RET (RET was added build 016, removed build 039; confirmed build 070) | Yes — 11 internal NOP jumps | 016 |
 | 3. Scene traversal cull jumps (7x) | 0x4072BD, 0x4072D2, 0x407AF1, 0x407B30, 0x407B49, 0x407B62, 0x407B7B | Distance + screen-boundary conditional skips | Yes — all 7 NOPed (6 bytes each) | 016 |
 | 4. D3D backface culling | SetRenderState(D3DRS_CULLMODE) | Hardware backface cull | Yes — forced D3DCULL_NONE | 016 |
 | 5. Cull mode globals | 0xF2A0D4, 0xF2A0D8, 0xF2A0DC | Engine cull state variables | Yes — stamped to D3DCULL_NONE per scene | 029 |

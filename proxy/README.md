@@ -60,8 +60,7 @@ Applied at startup via `VirtualProtect` + memory writes:
 
 | Address | Patch | Effect |
 |---------|-------|--------|
-| `0x407150` | Write `0xC3` (RET) | Bypasses per-object frustum cull function entirely |
-| `0x4070F0` + 10 sites | NOP 6-byte branches | Disables all scene-traversal cull exits |
+| `0x407150` + 10 internal sites | NOP 6-byte branches | Disables all 11 scene-traversal cull exits inside `SceneTraversal_CullAndSubmit` (no RET — function executes with all exits NOPed) |
 | `0x46C194`, `0x46C19D` | NOP JE/JNE | Defeats sector/portal visibility gates (65× draw count increase) |
 | `0x60B050` | `mov al,1; ret 4` | `Light_VisibilityTest` always returns TRUE |
 | `0xEFDD64` | Stamp `-1e30f` | Frustum distance threshold — nothing is "too close" |
