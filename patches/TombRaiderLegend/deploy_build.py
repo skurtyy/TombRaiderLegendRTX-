@@ -321,9 +321,14 @@ def deploy(build_arg: str):
     shutil.copy2(ini_src, GAME_DIR / "proxy.ini")
     deployed = "d3d9.dll + proxy.ini"
 
-    if rtx_src.exists():
-        shutil.copy2(rtx_src, GAME_DIR / "rtx.conf")
-        deployed += " + rtx.conf"
+    # Only seed rtx.conf when game dir has none; preserve runtime texture tags
+    # (sky / UI / animatedWater / smoothNormals) the user set via Remix menu.
+    game_rtx_conf = GAME_DIR / "rtx.conf"
+    if rtx_src.exists() and not game_rtx_conf.exists():
+        shutil.copy2(rtx_src, game_rtx_conf)
+        deployed += " + rtx.conf (seeded)"
+    elif game_rtx_conf.exists():
+        deployed += " (preserved existing rtx.conf)"
 
     print(f"\n=== Deployed {deployed} to {GAME_DIR.name}/ ===")
 

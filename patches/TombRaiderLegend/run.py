@@ -1,22 +1,10 @@
-"""Tomb Raider Legend — Autonomous test orchestrator.
-
-Modes:
-  test           Full stage-light end-to-end release gate.
-  test-hash      Hash stability test (camera-only, no WASD movement).
-  record         Launch game, record your inputs, save macro.
-  test-legacy    Backward-compatible alias for the full stage-light test.
-  batch          Batch runs with randomized movement.
-  batch-legacy   Backward-compatible alias for batch runs.
+"""Tomb Raider Legend — hash stability test orchestrator.
 
 Usage:
-  python patches/TombRaiderLegend/run.py test --build --randomize
   python patches/TombRaiderLegend/run.py test-hash --build
-  python patches/TombRaiderLegend/run.py record
-  python patches/TombRaiderLegend/run.py batch --start 1 --end 3 --total 3
 """
 
 import argparse
-import json
 import os
 import random
 import shutil
@@ -29,8 +17,6 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent
 PROXY_DIR = SCRIPT_DIR / "proxy"
-MACROS_FILE = SCRIPT_DIR / "macros.json"
-MACRO_NAME = "test_session"
 
 # Add repo root to path so livetools and config are importable
 sys.path.insert(0, str(REPO_ROOT))
@@ -41,39 +27,23 @@ from config import (
     NVIDIA_SCREENSHOT_DIR as SCREENSHOTS_SRC,
     PROXY_LOG,
 )
+from patches.TombRaiderLegend import launcher as stable_launcher
 SCREENSHOTS_DIR = SCRIPT_DIR / "screenshots"
-RELEASE_GATE_DIR = GAME_DIR / "artifacts" / "release_gate"
 NIGHTLY_MOD_FILE = GAME_DIR / "rtx-remix" / "mods" / "trl-nightly" / "mod.usda"
 DEFAULT_LAUNCH_CHAPTER = 2
 DEFAULT_POST_LOAD_SEQUENCE = "ESC WAIT:3000 W WAIT:3000 RETURN"
 DEFAULT_POST_LOAD_SETTLE_SECONDS = 3.0
 _MIN_CAPTURE_SIGNAL = 32
 _MIN_CAPTURE_STDDEV = 1.0
-_MIN_CLEAN_FRAME_DIFF = 0.5
-_HASH_HUE_BIN_SIZE = 8
-_HASH_MAX_HUE_DRIFT = 16
-_HASH_REQUIRED_STABLE_REGIONS = 2
-_RELEASE_GATE_REQUIRED_CAPTURE_MARKERS = 3
-_RELEASE_GATE_DEBUG_VIEW_SETTLE_SECONDS = 0.8
-_RELEASE_GATE_CAPTURE_COOLDOWN_SECONDS = 0.4
-_RELEASE_GATE_CAPTURE_RETRIES = 5
-_RELEASE_GATE_CAPTURE_RETRY_DELAY_SECONDS = 1.0
-_RELEASE_GATE_MIN_LIT_PIXEL_FRACTION = 0.15
-_RELEASE_GATE_LIT_PIXEL_THRESHOLD = 24
-_HASH_STABILITY_REGIONS = {
-    "ground": (0.30, 0.65, 0.70, 0.95),
-    "left_structure": (0.05, 0.30, 0.28, 0.75),
-    "right_foliage": (0.72, 0.18, 0.95, 0.60),
-}
 
 
 def collect_screenshots(max_age_seconds=120, limit=3, after_ts=None,
                         destination_dir=None):
     """Copy the most recent `limit` screenshots from NVIDIA capture folder.
 
-    The macro takes 2 standing-still shots during menu nav before the 3
-    randomized movement shots. Taking only the last `limit` files ensures
-    we always get the post-movement captures, not the pre-movement ones.
+    Taking only the most recent files ensures the copied images belong to the
+    current camera-pan capture pass instead of stale overlay screenshots from
+    a prior run.
     """
     if not SCREENSHOTS_SRC.exists():
         print(f"WARNING: Screenshot folder not found: {SCREENSHOTS_SRC}")
@@ -198,61 +168,6 @@ def capture_window_image(hwnd, destination: Path, *, prefer_nvidia: bool = True,
     return None
 
 
-def run_macro_with_captures(hwnd, steps: str, *, prefix: str,
-                            delay_ms: int = 200, prefer_nvidia: bool = True):
-    """Execute macro tokens, replacing `]` with deterministic inline captures."""
-    from livetools.gamectl import find_hwnd_by_exe, focus_hwnd, send_key
-
-    focus_hwnd(hwnd)
-    captures = []
-    actions = []
-    capture_index = 0
-
-    for token in steps.strip().split():
-        upper = token.upper()
-        if upper.startswith("WAIT:"):
-            ms = int(token.split(":")[1])
-            time.sleep(ms / 1000.0)
-            actions.append({"action": "wait", "ms": ms})
-            continue
-
-        if upper.startswith("HOLD:"):
-            parts = token.split(":")
-            key = parts[1]
-            ms = int(parts[2]) if len(parts) > 2 else 500
-            send_key(key, hold_ms=ms)
-            actions.append({"action": "hold", "key": key, "hold_ms": ms})
-            time.sleep(delay_ms / 1000.0)
-            continue
-
-        if token == "]":
-            capture_index += 1
-            capture_path = SCREENSHOTS_DIR / f"{prefix}-{capture_index:02d}.png"
-            refreshed_hwnd = find_hwnd_by_exe("trl.exe")
-            if refreshed_hwnd:
-                hwnd = refreshed_hwnd
-            captured = capture_window_image(
-                hwnd,
-                capture_path,
-                prefer_nvidia=prefer_nvidia,
-            )
-            if captured:
-                captures.append(captured)
-            actions.append({"action": "capture", "path": str(capture_path)})
-            time.sleep(delay_ms / 1000.0)
-            continue
-
-        send_key(token)
-        actions.append({"action": "key", "key": token})
-        time.sleep(delay_ms / 1000.0)
-
-    return {"ok": True, "count": len(actions), "captures": captures}
-
-
-def count_capture_markers(steps: str) -> int:
-    return sum(1 for token in steps.split() if token == "]")
-
-
 def wait_for_fresh_proxy_log(after_ts: float, timeout_seconds: int = 70) -> bool:
     """Wait for a proxy log that was written by the current run."""
     print("\n=== Waiting for proxy diagnostics ===")
@@ -273,354 +188,6 @@ def wait_for_fresh_proxy_log(after_ts: float, timeout_seconds: int = 70) -> bool
     return False
 
 
-def wait_for_fresh_screenshot(after_ts: float, *, timeout_seconds: float = 8.0,
-                              destination_dir=None, target_name: str | None = None):
-    """Wait for a screenshot written by the current run and copy it locally."""
-    if not SCREENSHOTS_SRC.exists():
-        return None
-
-    target_dir = Path(destination_dir) if destination_dir else SCREENSHOTS_DIR
-    deadline = time.time() + timeout_seconds
-    while time.time() < deadline:
-        candidates = sorted(
-            (
-                f for f in SCREENSHOTS_SRC.iterdir()
-                if f.suffix.lower() in (".png", ".jpg", ".bmp")
-                and f.stat().st_mtime >= after_ts
-            ),
-            key=lambda f: f.stat().st_mtime,
-            reverse=True,
-        )
-        if candidates:
-            source = candidates[0]
-            target_dir.mkdir(parents=True, exist_ok=True)
-            destination = target_dir / (target_name or source.name)
-            shutil.copy2(str(source), str(destination))
-            print(f"  Screenshot: {destination.name}")
-            return destination
-        time.sleep(0.2)
-
-    return None
-
-
-def release_gate_frame_ready(path: str | Path) -> bool:
-    """Reject mostly-black transition frames after live debug-view switches."""
-    from PIL import Image
-    import numpy as np
-
-    image = Image.open(path).convert("RGB")
-    luminance = np.array(image).mean(axis=2)
-    lit_fraction = float((luminance > _RELEASE_GATE_LIT_PIXEL_THRESHOLD).mean())
-    return lit_fraction >= _RELEASE_GATE_MIN_LIT_PIXEL_FRACTION
-
-
-def capture_release_gate_evidence(hwnd, steps: str, *, run_label: str,
-                                  delay_ms: int = 0):
-    """Execute the release-gate macro and capture hash+clean frames inline.
-
-    Each `]` token becomes a paired capture at the current camera position:
-    first hash-debug view (277), then clean render (0). This keeps both
-    evidence sets aligned to the same three stage positions without a second
-    game launch.
-    """
-    from livetools.gamectl import find_hwnd_by_exe, focus_hwnd, send_key
-
-    SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
-    hash_paths = []
-    clean_paths = []
-    actions = []
-    capture_index = 0
-
-    def _refresh_hwnd():
-        nonlocal hwnd
-        refreshed_hwnd = find_hwnd_by_exe("trl.exe")
-        if refreshed_hwnd:
-            hwnd = refreshed_hwnd
-        return hwnd
-
-    def _capture_view(view_name: str, debug_view_idx: int):
-        destination = SCREENSHOTS_DIR / f"{run_label}-{view_name}-{capture_index:02d}.png"
-        last_error = None
-        for attempt in range(1, _RELEASE_GATE_CAPTURE_RETRIES + 1):
-            current_hwnd = _refresh_hwnd()
-            if not current_hwnd:
-                return None, f"Game window disappeared before {view_name} capture {capture_index}"
-
-            set_debug_view(debug_view_idx)
-            time.sleep(_RELEASE_GATE_DEBUG_VIEW_SETTLE_SECONDS)
-            focus_hwnd(current_hwnd)
-            time.sleep(0.3)
-            capture_started_at = time.time()
-            send_key("]", hold_ms=50)
-            captured = wait_for_fresh_screenshot(
-                capture_started_at,
-                timeout_seconds=8.0,
-                destination_dir=SCREENSHOTS_DIR,
-                target_name=destination.name,
-            )
-            if captured is None:
-                captured = capture_window_image(
-                    current_hwnd,
-                    destination,
-                    prefer_nvidia=True,
-                    attempts=3,
-                )
-            if captured is None:
-                last_error = f"Failed to capture a usable {view_name} frame for capture {capture_index}"
-                time.sleep(_RELEASE_GATE_CAPTURE_RETRY_DELAY_SECONDS)
-                continue
-            if release_gate_frame_ready(captured):
-                print(f"  {view_name.title()} capture {capture_index}: {captured.name}")
-                time.sleep(_RELEASE_GATE_CAPTURE_COOLDOWN_SECONDS)
-                return captured, None
-
-            print(f"  {view_name.title()} capture {capture_index} looked unready "
-                  f"(attempt {attempt}/{_RELEASE_GATE_CAPTURE_RETRIES}); retrying...")
-            last_error = f"{view_name.title()} capture {capture_index} stayed mostly black"
-            time.sleep(_RELEASE_GATE_CAPTURE_RETRY_DELAY_SECONDS)
-
-        return None, last_error or (
-            f"Failed to capture a usable {view_name} frame for capture {capture_index}"
-        )
-
-    if _refresh_hwnd():
-        focus_hwnd(hwnd)
-        time.sleep(0.5)
-
-    for token in steps.strip().split():
-        upper = token.upper()
-        if upper.startswith("WAIT:"):
-            ms = int(token.split(":")[1])
-            time.sleep(ms / 1000.0)
-            actions.append({"action": "wait", "ms": ms})
-            continue
-
-        if upper.startswith("HOLD:"):
-            parts = token.split(":")
-            key = parts[1]
-            ms = int(parts[2]) if len(parts) > 2 else 500
-            if not _refresh_hwnd():
-                return {
-                    "ok": False,
-                    "error": f"Game window disappeared before HOLD:{key}:{ms}",
-                    "hash_paths": hash_paths,
-                    "clean_paths": clean_paths,
-                    "actions": actions,
-                }
-            focus_hwnd(hwnd)
-            send_key(key, hold_ms=ms)
-            actions.append({"action": "hold", "key": key, "hold_ms": ms})
-            time.sleep(delay_ms / 1000.0)
-            continue
-
-        if token == "]":
-            capture_index += 1
-            hash_path, hash_error = _capture_view("hash", 277)
-            if hash_error:
-                return {
-                    "ok": False,
-                    "error": hash_error,
-                    "hash_paths": hash_paths,
-                    "clean_paths": clean_paths,
-                    "actions": actions,
-                }
-            clean_path, clean_error = _capture_view("clean", 0)
-            if clean_error:
-                return {
-                    "ok": False,
-                    "error": clean_error,
-                    "hash_paths": hash_paths,
-                    "clean_paths": clean_paths,
-                    "actions": actions,
-                }
-            hash_paths.append(hash_path)
-            clean_paths.append(clean_path)
-            actions.append({
-                "action": "capture_pair",
-                "index": capture_index,
-                "hash_path": str(hash_path),
-                "clean_path": str(clean_path),
-            })
-            continue
-
-        if not _refresh_hwnd():
-            return {
-                "ok": False,
-                "error": f"Game window disappeared before key '{token}'",
-                "hash_paths": hash_paths,
-                "clean_paths": clean_paths,
-                "actions": actions,
-            }
-        focus_hwnd(hwnd)
-        send_key(token)
-        actions.append({"action": "key", "key": token})
-        time.sleep(delay_ms / 1000.0)
-
-    set_debug_view(0)
-    return {
-        "ok": True,
-        "count": len(actions),
-        "capture_points": capture_index,
-        "hash_paths": hash_paths,
-        "clean_paths": clean_paths,
-        "actions": actions,
-    }
-
-
-def _mean_frame_difference(path_a: str | Path, path_b: str | Path) -> float:
-    from PIL import Image, ImageChops, ImageStat
-
-    img_a = Image.open(path_a).convert("RGB").resize((320, 180), Image.Resampling.BILINEAR)
-    img_b = Image.open(path_b).convert("RGB").resize((320, 180), Image.Resampling.BILINEAR)
-    diff = ImageChops.difference(img_a, img_b)
-    stat = ImageStat.Stat(diff)
-    return sum(float(value) for value in stat.mean) / 3.0
-
-
-def evaluate_release_gate_movement(clean_paths: list[str | Path]) -> dict[str, object]:
-    differences = [
-        round(_mean_frame_difference(left, right), 3)
-        for left, right in zip(clean_paths, clean_paths[1:])
-    ]
-    passed = bool(differences) and all(diff >= _MIN_CLEAN_FRAME_DIFF for diff in differences)
-    return {"passed": passed, "differences": differences}
-
-
-def _dominant_hue_in_roi(path: str | Path, roi: tuple[float, float, float, float]):
-    from PIL import Image
-    import numpy as np
-
-    image = Image.open(path).convert("HSV")
-    width, height = image.size
-    x1, y1, x2, y2 = roi
-    crop = np.array(image.crop((
-        int(width * x1),
-        int(height * y1),
-        int(width * x2),
-        int(height * y2),
-    )))
-    saturation = crop[:, :, 1]
-    value = crop[:, :, 2]
-    mask = (saturation > 80) & (value > 40)
-    if int(mask.sum()) < 50:
-        return None
-
-    hues = crop[:, :, 0][mask]
-    bins = 256 // _HASH_HUE_BIN_SIZE
-    histogram = np.bincount((hues // _HASH_HUE_BIN_SIZE).astype(int), minlength=bins)
-    return int(histogram.argmax()) * _HASH_HUE_BIN_SIZE
-
-
-def _circular_hue_distance(left: int, right: int) -> int:
-    raw = abs(left - right)
-    return min(raw, 256 - raw)
-
-
-def evaluate_release_gate_hash_stability(hash_paths: list[str | Path]) -> dict[str, object]:
-    if len(hash_paths) < 3:
-        return {
-            "passed": False,
-            "stable_regions": 0,
-            "required_stable_regions": _HASH_REQUIRED_STABLE_REGIONS,
-            "regions": {
-                name: {"hues": [], "max_drift": None, "passed": False}
-                for name in _HASH_STABILITY_REGIONS
-            },
-        }
-
-    region_report: dict[str, dict[str, object]] = {}
-    stable_regions = 0
-
-    for name, roi in _HASH_STABILITY_REGIONS.items():
-        hues = [_dominant_hue_in_roi(path, roi) for path in hash_paths]
-        present_hues = [hue for hue in hues if hue is not None]
-        max_drift = 999
-        passed = False
-        if len(present_hues) >= len(hash_paths):
-            max_drift = max(
-                _circular_hue_distance(left, right)
-                for left, right in zip(present_hues, present_hues[1:])
-            ) if len(present_hues) > 1 else 0
-            passed = max_drift <= _HASH_MAX_HUE_DRIFT
-            if passed:
-                stable_regions += 1
-
-        region_report[name] = {
-            "hues": hues,
-            "max_drift": max_drift if max_drift != 999 else None,
-            "passed": passed,
-        }
-
-    return {
-        "passed": stable_regions >= _HASH_REQUIRED_STABLE_REGIONS,
-        "stable_regions": stable_regions,
-        "required_stable_regions": _HASH_REQUIRED_STABLE_REGIONS,
-        "regions": region_report,
-    }
-
-
-def evaluate_release_gate(hash_paths: list[str | Path], clean_paths: list[str | Path],
-                          log_path: str | Path | None, *, crashed: bool) -> dict[str, object]:
-    from autopatch.evaluator import evaluate_screenshots
-    from patches.TombRaiderLegend.nightly.logs import parse_proxy_log
-    from patches.TombRaiderLegend.nightly.manifests import load_nightly_config
-
-    config = load_nightly_config()
-    light_report = evaluate_screenshots(clean_paths)
-    movement_report = evaluate_release_gate_movement(clean_paths)
-    hash_report = evaluate_release_gate_hash_stability(hash_paths)
-    log_summary = parse_proxy_log(log_path, config.required_patch_tokens)
-    log_report = {
-        "passed": (
-            log_summary.all_required_patches_present
-            and log_summary.max_passthrough == 0
-            and log_summary.max_xform_blocked == 0
-        ),
-        "required_patch_hits": dict(log_summary.required_patch_hits),
-        "max_passthrough": log_summary.max_passthrough,
-        "max_xform_blocked": log_summary.max_xform_blocked,
-        "p95_cpu_ms": log_summary.p95_cpu_ms,
-        "median_cpu_ms": log_summary.median_cpu_ms,
-    }
-
-    report = {
-        "passed": (
-            not crashed
-            and len(hash_paths) >= 3
-            and len(clean_paths) >= 3
-            and hash_report["passed"]
-            and light_report.passed
-            and movement_report["passed"]
-            and log_report["passed"]
-        ),
-        "crashed": crashed,
-        "hash_paths": [str(path) for path in hash_paths],
-        "clean_paths": [str(path) for path in clean_paths],
-        "hash_stability": hash_report,
-        "lights": {
-            "passed": light_report.passed,
-            "red_visible": list(light_report.red_visible),
-            "green_visible": list(light_report.green_visible),
-            "confidence": float(light_report.confidence),
-        },
-        "movement": movement_report,
-        "log": log_report,
-    }
-    return report
-
-
-def write_release_gate_report(report: dict[str, object]) -> Path:
-    RELEASE_GATE_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = time.strftime("%Y%m%d-%H%M%S")
-    report_path = RELEASE_GATE_DIR / f"release-gate-{timestamp}.json"
-    latest_path = RELEASE_GATE_DIR / "latest.json"
-    payload = dict(report)
-    payload["generated_at"] = timestamp
-    report_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    latest_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    return report_path
-
-
 def deploy_runtime_bundle(proxy_dir=PROXY_DIR, proxy_ini_path=None,
                           rtx_conf_path=None, game_dir=GAME_DIR):
     """Deploy authoritative TRL runtime files to the live game directory."""
@@ -636,9 +203,19 @@ def deploy_runtime_bundle(proxy_dir=PROXY_DIR, proxy_ini_path=None,
 
     shutil.copy2(str(dll_src), str(game_dir / "d3d9.dll"))
     shutil.copy2(str(proxy_ini_path), str(game_dir / "proxy.ini"))
-    if rtx_conf_path.exists():
-        shutil.copy2(str(rtx_conf_path), str(game_dir / "rtx.conf"))
-        print(f"Deployed d3d9.dll + proxy.ini + rtx.conf to {game_dir.name}/")
+
+    # rtx.conf is authoritative in the game directory — the user tags textures
+    # (sky, UI, animatedWater, smoothNormals, etc.) via the in-game Remix menu
+    # and those tags live in the game-dir rtx.conf. Only seed the file from
+    # the repo template when the game directory doesn't already have one;
+    # never overwrite an existing game-dir rtx.conf.
+    game_rtx_conf = game_dir / "rtx.conf"
+    if rtx_conf_path.exists() and not game_rtx_conf.exists():
+        shutil.copy2(str(rtx_conf_path), str(game_rtx_conf))
+        print(f"Deployed d3d9.dll + proxy.ini + rtx.conf (seeded) to {game_dir.name}/")
+    elif game_rtx_conf.exists():
+        print(f"Deployed d3d9.dll + proxy.ini to {game_dir.name}/ "
+              f"(preserved existing rtx.conf with runtime texture tags)")
     else:
         print(f"Deployed d3d9.dll + proxy.ini to {game_dir.name}/ (no rtx.conf template)")
 
@@ -695,9 +272,8 @@ def build_proxy_bundle(proxy_dir=PROXY_DIR, proxy_ini_path=None,
 def set_graphics_config():
     """Set TRL graphics registry for Remix and skip the setup screen.
 
-    The setup screen appears when AdapterIdentifier changes (new d3d9.dll).
     We write a fixed config so the game always launches directly while keeping
-    TRL water effects enabled for animated water/waterfall materials.
+    only water FX enabled (other expensive effects off for clean captures).
     """
     import winreg
     gfx_path = r"Software\Crystal Dynamics\Tomb Raider: Legend\Graphics"
@@ -734,9 +310,9 @@ def set_graphics_config():
             "Disable32BitTextures": 0,
             "ExtendedDialog": 1,
             "AdapterID": 0,
-            "DisablePureDevice": 0,         # Proxy already strips PUREDEVICE flag
-            "DontDeferShaderCreation": 1,    # All shaders created at startup
-            "AlwaysRenderZPassFirst": 0,    # Interferes with Remix rendering
+            "DisablePureDevice": 0,
+            "DontDeferShaderCreation": 1,
+            "AlwaysRenderZPassFirst": 0,
             "CreateGameFourCC": 0,          # Not needed, can cause format issues
             "NoDynamicTextures": 0,
             "Shadows": 0,
@@ -757,7 +333,7 @@ def set_graphics_config():
                               winreg.REG_DWORD, mode_id)
 
         key.Close()
-        print("Graphics config set (lowest settings, setup screen bypassed)")
+        print("Graphics config set (setup dialog bypassed)")
     except Exception as e:
         print(f"WARNING: Could not set graphics config: {e}")
 
@@ -930,39 +506,41 @@ def dismiss_setup_dialog():
     # Fullscreen: ensure checked
     ensure_checked("Fullscreen")
 
-    # Resolution: try 3840x2160, fall back to highest available
-    select_combo_item("Resolution", "3840")
+    # Adapter/resolution/refresh/filter: match the requested setup dialog.
+    select_combo_item("Display Adapter", "RTX 5090")
+    select_combo_item("Resolution", "3840 by 2160")
 
-    # Refresh rate: try 240, fall back to highest
+    # Refresh rate: try 240, fall back to highest.
     select_combo_item("Refresh Rate", "240")
+    select_combo_item("Texture Filtering", "Trilinear")
 
-    # Keep water enabled, disable the rest for cleanest Remix compatibility
+    # Rendering settings from the requested setup window.
     ensure_unchecked("Enable VSync")
     ensure_unchecked("Enable Fullscreen Effects")
     ensure_unchecked("Enable Depth of Field")
     ensure_unchecked("Enable Shadows")
     ensure_unchecked("Enable Anti Aliasing")
     ensure_unchecked("Enable Reflections")
-    ensure_checked("Enable Water Effects")
+    ensure_unchecked("Enable Water Effects")
     ensure_unchecked("Next Generation Content")
     ensure_unchecked("Use 3.0 Shader Features")
     ensure_unchecked("LowRes Depth of Field")
 
-    # DevTech options for RTX Remix compatibility
+    # DevTech options from the requested setup window.
     ensure_unchecked("Disable Hardware Vertexshaders")
     ensure_unchecked("Disable Hardware DXTC")
     ensure_unchecked("Disable Non Pow2 Support")
     ensure_unchecked("Use D3D Reference Device")
-    ensure_unchecked("No Dynamic Textures")
-    ensure_unchecked("Disable Pure Device")      # Proxy already strips PUREDEVICE flag
+    ensure_checked("No Dynamic Textures")
+    ensure_unchecked("Disable Pure Device")
     ensure_unchecked("D3D FPU Preserve")
     ensure_unchecked("Disable 32bit Textures")
     ensure_unchecked("Disable Driver Management")
     ensure_unchecked("Disable Hardware Shadow Maps")
     ensure_unchecked("Disable Null Render Targets")
     ensure_unchecked("Always Render Z-pass First")
-    ensure_unchecked("Create Game FourCC")
-    ensure_checked("Dont Defer Shader Creation") # All shaders created at startup for Remix
+    ensure_checked("Create Game FourCC")
+    ensure_checked("Dont Defer Shader Creation")
 
     time.sleep(1.0)
 
@@ -1009,82 +587,63 @@ def kill_game():
     time.sleep(2)
 
 
+def require_live_game_window(hwnd=None, *, context="automation"):
+    """Return a fresh TRL window handle or fail before sending input."""
+    from livetools.gamectl import find_hwnd_by_exe
+
+    refreshed_hwnd = find_hwnd_by_exe("trl.exe")
+    if refreshed_hwnd:
+        return refreshed_hwnd
+    raise RuntimeError(f"Game window disappeared before {context}")
+
+
 def _advance_to_bolivia_level(hwnd, sequence=DEFAULT_POST_LOAD_SEQUENCE,
                               settle_seconds=DEFAULT_POST_LOAD_SETTLE_SECONDS):
     """Advance from the chapter-2 load into the Bolivia gameplay state."""
     if not sequence:
-        return
+        return require_live_game_window(hwnd, context="post-load automation")
 
-    from livetools.gamectl import focus_hwnd, send_keys
+    from livetools.gamectl import send_keys
 
-    focus_hwnd(hwnd)
-    time.sleep(0.5)
+    hwnd = require_live_game_window(hwnd, context="Bolivia entry sequence")
+    # Do NOT call focus_hwnd here — send_keys handles focus internally,
+    # and a second focus call before it risks a D3D device-lost crash.
     print(f"Sending Bolivia entry sequence: {sequence}")
     send_keys(hwnd, sequence, delay_ms=0)
     print(f"Waiting {settle_seconds:.1f}s for Bolivia gameplay to settle...")
     time.sleep(settle_seconds)
+    return require_live_game_window(hwnd, context="Bolivia gameplay automation")
 
 
 def launch_game(chapter=DEFAULT_LAUNCH_CHAPTER,
                 post_load_sequence=DEFAULT_POST_LOAD_SEQUENCE,
                 post_load_settle_seconds=DEFAULT_POST_LOAD_SETTLE_SECONDS):
-    """Launch TRL into chapter 2 and advance into the Bolivia gameplay state."""
-    from livetools.gamectl import find_hwnd_by_exe, get_window_info
+    """Launch TRL through the stable Peru path used by the dedicated launcher.
 
-    if not LAUNCHER.exists():
-        print(f"ERROR: Launcher not found: {LAUNCHER}")
-        sys.exit(1)
-    if not GAME_EXE.exists():
-        print(f"ERROR: Game exe not found: {GAME_EXE}")
-        sys.exit(1)
-
-    write_tr7_arg(chapter=chapter)
-
-    print(f"Launching: {LAUNCHER.name} {GAME_EXE.name}")
-    subprocess.Popen([str(LAUNCHER), str(GAME_EXE)], cwd=str(GAME_DIR))
-
-    print("Waiting for game window...")
-    hwnd = None
-    setup_dismissed = False
-    for i in range(90):  # up to 90 seconds
-        # Check for setup dialog first — dismiss it if present
-        if not setup_dismissed and dismiss_setup_dialog():
-            setup_dismissed = True
-            # After dismissing, wait a bit for the real game window
-            time.sleep(3)
-            continue
-
-        hwnd = find_hwnd_by_exe("trl.exe")
-        if hwnd:
-            info = get_window_info(hwnd)
-            # Make sure it's the game window, not the setup dialog
-            if "Setup" not in info["title"]:
-                print(f"  Found: {info['title']} (hwnd={hex(hwnd)}, "
-                      f"pid={info['pid']})")
-                break
-            else:
-                # Still the setup dialog — dismiss it
-                dismiss_setup_dialog()
-                hwnd = None
-        time.sleep(1)
-        if i % 10 == 9:
-            print(f"  ...{i+1}s elapsed, still waiting")
-
-    if not hwnd:
-        print("ERROR: Game window not found after 90s")
-        sys.exit(1)
-
-    # Let the game fully load before sending any menu/cutscene navigation.
-    print("Window found. Waiting 15s for chapter load and UI stabilization...")
-    print("  (Do not click or alt-tab — let the game initialize)")
-    time.sleep(15)
-    _advance_to_bolivia_level(
-        hwnd,
-        sequence=post_load_sequence,
-        settle_seconds=post_load_settle_seconds,
+    The old TR7.arg -> chapter 2 -> Bolivia cutscene skip route is retained
+    only for reference. The automated hash workflow should not use it because
+    it is the brittle startup path that keeps hanging/crashing under Remix.
+    """
+    route = stable_launcher.choose_launch_route(
+        force_continue=stable_launcher.has_checkpoint()
     )
 
-    return hwnd
+    if (chapter != DEFAULT_LAUNCH_CHAPTER or
+            post_load_sequence != DEFAULT_POST_LOAD_SEQUENCE or
+            post_load_settle_seconds != DEFAULT_POST_LOAD_SETTLE_SECONDS):
+        print("NOTE: Ignoring legacy chapter/cutscene launch parameters; "
+              "using stable Peru launcher route")
+
+    print(f"Using stable launch route: {route}")
+    try:
+        hwnd = stable_launcher.launch_game()
+        stable_launcher.navigate_to_peru(hwnd, route=route)
+        return require_live_game_window(hwnd, context="Peru gameplay automation")
+    except SystemExit:
+        raise
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}")
+        sys.exit(1)
 
 
 def build_proxy():
@@ -1099,82 +658,6 @@ def build_proxy():
     except Exception as exc:
         print(f"ERROR: {exc}")
         sys.exit(1)
-
-
-def do_record():
-    """Launch game, record inputs, save as test_session macro."""
-    from livetools.gamectl import (record, events_to_macro, save_macro,
-                                   focus_hwnd)
-
-    kill_game()
-    hwnd = launch_game()
-
-    print("\n=== Recording mode ===")
-    print("Game should be focused. Play through your test routine.")
-    print("Press F12 to stop recording.\n")
-
-    events = record(hwnd, stop_key="F12")
-
-    if not events:
-        print("No events recorded.")
-        return
-
-    steps = events_to_macro(events)
-
-    keys = sum(1 for e in events if e["type"] == "keydown")
-    clicks = sum(1 for e in events if e["type"] in ("lclick", "rclick"))
-    moves = sum(1 for e in events if e["type"] == "move")
-    holds = steps.count("HOLD:")
-    duration_s = events[-1]["time_ms"] / 1000.0
-    m, s = divmod(int(duration_s), 60)
-
-    desc = (f"Recorded test session ({keys} keys, {clicks} clicks, "
-            f"{moves} moves, {m}m{s}s)")
-    save_macro(MACROS_FILE, MACRO_NAME, desc, steps)
-
-    print(f"\nSaved macro '{MACRO_NAME}' to {MACROS_FILE}")
-    print(f"Duration: {m}m {s}s | Keys: {keys} | Clicks: {clicks} "
-          f"| Moves: {moves} | Holds: {holds}")
-    print(f"\nTest with:  python {Path(__file__).name} test")
-
-
-def generate_random_movement_legacy():
-    """Generate a bounded stage sweep for the release gate.
-
-    The objective is to validate light stability across three nearby stage
-    positions, not to wander far enough to leave the safe test area or induce
-    avoidable crashes. Randomization is therefore kept within a narrow strafe
-    envelope around the known-good Bolivia baseline.
-    """
-    tokens = []
-
-    # Initial settle time after cutscene skip
-    tokens.append("WAIT:2500")
-
-    # Move into the stage area using a bounded forward step.
-    forward_ms = random.randint(1800, 2600)
-    tokens.append(f"HOLD:W:{forward_ms}")
-    tokens.append("WAIT:1000")
-
-    # Take a baseline screenshot before any movement
-    tokens.append("]")
-    tokens.append("WAIT:1000")
-
-    # Sweep to one side, then across center to the opposite side.
-    first_key, second_key = random.choice([("A", "D"), ("D", "A")])
-    first_ms = random.randint(700, 1400)
-    second_ms = first_ms + random.randint(900, 1600)
-
-    tokens.append(f"HOLD:{first_key}:{first_ms}")
-    tokens.append("WAIT:750")
-    tokens.append("]")
-    tokens.append("WAIT:1000")
-
-    tokens.append(f"HOLD:{second_key}:{second_ms}")
-    tokens.append("WAIT:750")
-    tokens.append("]")
-
-    return " ".join(tokens)
 
 
 def do_live_analysis_legacy(hwnd, duration_s=60):
@@ -1239,32 +722,40 @@ def do_live_analysis_legacy(hwnd, duration_s=60):
 
     # Move Lara around while collecting data
     print("Moving Lara with A/D strafes + mouse look-around...")
+    hwnd = require_live_game_window(hwnd, context="live analysis automation")
     focus_hwnd(hwnd)
     time.sleep(0.5)
 
     move_interval = 3  # seconds per movement cycle
     cycles = duration_s // move_interval
     for i in range(cycles):
+        hwnd = require_live_game_window(hwnd, context="live analysis movement cycle")
         elapsed = i * move_interval
         phase = i % 6
 
         if phase == 0:
+            focus_hwnd(hwnd)
             send_key("A", hold_ms=random.randint(400, 1200))
         elif phase == 1:
             for _ in range(5):
+                hwnd = require_live_game_window(hwnd, context="live analysis mouse look-right")
                 move_mouse_relative(random.randint(30, 80), random.randint(-15, 15))
                 time.sleep(0.1)
         elif phase == 2:
+            focus_hwnd(hwnd)
             send_key("D", hold_ms=random.randint(400, 1200))
         elif phase == 3:
             for _ in range(5):
+                hwnd = require_live_game_window(hwnd, context="live analysis mouse look-left")
                 move_mouse_relative(random.randint(-80, -30), random.randint(-15, 15))
                 time.sleep(0.1)
         elif phase == 4:
             for _ in range(5):
+                hwnd = require_live_game_window(hwnd, context="live analysis vertical look")
                 move_mouse_relative(random.randint(-10, 10), random.randint(-60, 60))
                 time.sleep(0.1)
         elif phase == 5:
+            focus_hwnd(hwnd)
             send_key("]", hold_ms=50)
 
         remaining = duration_s - elapsed
@@ -1331,36 +822,42 @@ def camera_pan_and_screenshot(hwnd, phase_name):
     from livetools.gamectl import send_key, move_mouse_relative, focus_hwnd
 
     print(f"\n--- {phase_name}: Camera pan + screenshots ---")
+    hwnd = require_live_game_window(hwnd, context=f"{phase_name} camera automation")
     focus_hwnd(hwnd)
     time.sleep(0.5)
     capture_started_at = time.time()
 
     # Screenshot at center position
     print("  Screenshot: center")
+    hwnd = require_live_game_window(hwnd, context=f"{phase_name} center screenshot")
     send_key("]", hold_ms=50)
     time.sleep(1.5)
 
     # Gentle camera pan LEFT (10 steps, -30px each = 300px total)
     print("  Camera pan: LEFT")
     for _ in range(10):
+        hwnd = require_live_game_window(hwnd, context=f"{phase_name} left camera pan")
         move_mouse_relative(-30, 0)
         time.sleep(0.1)
     time.sleep(0.5)
 
     # Screenshot at left position
     print("  Screenshot: left")
+    hwnd = require_live_game_window(hwnd, context=f"{phase_name} left screenshot")
     send_key("]", hold_ms=50)
     time.sleep(1.5)
 
     # Gentle camera pan RIGHT (20 steps, +30px each = 600px total, nets 300px right of center)
     print("  Camera pan: RIGHT")
     for _ in range(20):
+        hwnd = require_live_game_window(hwnd, context=f"{phase_name} right camera pan")
         move_mouse_relative(30, 0)
         time.sleep(0.1)
     time.sleep(0.5)
 
     # Screenshot at right position
     print("  Screenshot: right")
+    hwnd = require_live_game_window(hwnd, context=f"{phase_name} right screenshot")
     send_key("]", hold_ms=50)
     time.sleep(1.5)
 
@@ -1390,6 +887,7 @@ def do_livetools_diagnostics(hwnd):
 
     # 3a. Draw call census
     print("\n--- 3a: Draw call census (dipcnt) ---")
+    hwnd = require_live_game_window(hwnd, context="livetools diagnostics")
     focus_hwnd(hwnd)
     time.sleep(0.5)
 
@@ -1405,6 +903,7 @@ def do_livetools_diagnostics(hwnd):
 
     # Pan left
     for _ in range(10):
+        hwnd = require_live_game_window(hwnd, context="livetools diagnostics left pan")
         move_mouse_relative(-30, 0)
         time.sleep(0.1)
     time.sleep(1)
@@ -1416,6 +915,7 @@ def do_livetools_diagnostics(hwnd):
 
     # Pan right (back past center to right)
     for _ in range(20):
+        hwnd = require_live_game_window(hwnd, context="livetools diagnostics right pan")
         move_mouse_relative(30, 0)
         time.sleep(0.1)
     time.sleep(1)
@@ -1451,13 +951,16 @@ def do_livetools_diagnostics(hwnd):
     )
 
     # Gentle camera movement during collection
+    hwnd = require_live_game_window(hwnd, context="livetools collection camera movement")
     focus_hwnd(hwnd)
     for _ in range(3):
         for _ in range(5):
+            hwnd = require_live_game_window(hwnd, context="livetools collection left sweep")
             move_mouse_relative(-20, 0)
             time.sleep(0.1)
         time.sleep(1)
         for _ in range(5):
+            hwnd = require_live_game_window(hwnd, context="livetools collection right sweep")
             move_mouse_relative(20, 0)
             time.sleep(0.1)
         time.sleep(1)
@@ -1607,200 +1110,10 @@ def do_test_hash_stability(build_first=False, quick=False):
         restore_nightly_mod_override(disabled_nightly_mod)
 
 
-def do_test_legacy(build_first=False, randomize=False):
-    """Run the authoritative stage-light end-to-end release gate."""
-    from livetools.gamectl import load_macros
-
-    if build_first:
-        build_proxy()
-
-    # Ensure graphics config is set (prevents setup screen after new DLL)
-    set_graphics_config()
-    disabled_nightly_mod = suspend_nightly_mod_override()
-
-    # Verify macro exists
-    if not MACROS_FILE.exists():
-        print(f"ERROR: No macros file at {MACROS_FILE}")
-        print("Run 'python run.py record' first.")
-        restore_nightly_mod_override(disabled_nightly_mod)
-        sys.exit(1)
-
-    macros = load_macros(str(MACROS_FILE))
-    if MACRO_NAME not in macros:
-        print(f"ERROR: Macro '{MACRO_NAME}' not found in {MACROS_FILE}")
-        print("Run 'python run.py record' first.")
-        restore_nightly_mod_override(disabled_nightly_mod)
-        sys.exit(1)
-
-    macro_info = macros[MACRO_NAME]
-
-    if randomize:
-        # Replace macro with fully random movement+screenshot sequence.
-        # Macros are pure movement now (no menu nav — TR7.arg handles that).
-        random_movement = generate_random_movement_legacy()
-        macros[MACRO_NAME] = {**macro_info, "steps": random_movement}
-
-        holds = [t for t in random_movement.split() if t.startswith("HOLD:")]
-        screenshots = random_movement.count("]")
-        print(f"\nRandomized movement: {len(holds)} strafes, "
-              f"{screenshots} screenshots")
-        for h in holds:
-            parts = h.split(":")
-            print(f"  {parts[1]} hold {parts[2]}ms")
-    else:
-        steps = macro_info["steps"]
-
-    print(f"\nMacro: {MACRO_NAME}")
-    print(f"  {macro_info.get('description', '')}")
-
-    # Estimate duration from WAIT tokens
-    steps = macros[MACRO_NAME]["steps"]
-    wait_total = sum(int(t.split(":")[1]) for t in steps.split()
-                     if t.startswith("WAIT:"))
-    print(f"  Estimated duration: {wait_total // 1000}s")
-
-    capture_markers = count_capture_markers(steps)
-    print(f"  Capture points: {capture_markers}")
-    if capture_markers < _RELEASE_GATE_REQUIRED_CAPTURE_MARKERS:
-        print("ERROR: Release gate requires three screenshot markers in the macro.")
-        print(f"Current macro only provides {capture_markers} capture point(s).")
-        restore_nightly_mod_override(disabled_nightly_mod)
-        return False
-
-    print("\n=== Stage-light release gate ===")
-    set_debug_view(0)
-
-    kill_game()
-    launch_started_at = time.time()
-    try:
-        hwnd = launch_game()
-    except SystemExit:
-        print("ERROR: Release-gate launch failed.")
-        kill_game()
-        restore_nightly_mod_override(disabled_nightly_mod)
-        return False
-
-    run_label = f"release-gate-{time.strftime('%Y%m%d-%H%M%S')}"
-    print("Replaying macro with paired hash/clean captures...")
-    capture_result = capture_release_gate_evidence(
-        hwnd,
-        steps,
-        run_label=run_label,
-        delay_ms=0,
-    )
-    if capture_result["ok"]:
-        print(f"Release-gate replay complete. {capture_result['count']} actions sent.")
-    else:
-        print(f"Release-gate replay failed: {capture_result.get('error', capture_result)}")
-        kill_game()
-        restore_nightly_mod_override(disabled_nightly_mod)
-        return False
-
-    log_ready = wait_for_fresh_proxy_log(after_ts=launch_started_at)
-
-    from livetools.gamectl import find_hwnd_by_exe
-    crashed = not find_hwnd_by_exe("trl.exe")
-    if crashed:
-        print("WARNING: Game appears to have crashed during the release gate!")
-    else:
-        print("Game still running (no crash).")
-
-    log_copy = None
-    if log_ready and PROXY_LOG.exists():
-        log_copy = SCRIPT_DIR / "ffp_proxy.log"
-        shutil.copy2(str(PROXY_LOG), str(log_copy))
-        print(f"Copied final proxy log to {log_copy}")
-    else:
-        print("WARNING: Final proxy log was not available for release-gate parsing")
-
-    kill_game()
-    print("Runtime cleaned up after release gate.")
-
-    hash_shots = capture_result["hash_paths"]
-    clean_shots = capture_result["clean_paths"]
-
-    print("\n=== Test complete ===")
-    release_gate = evaluate_release_gate(
-        hash_shots,
-        clean_shots,
-        log_copy,
-        crashed=crashed,
-    )
-    report_path = write_release_gate_report(release_gate)
-    print(f"Release gate artifact: {report_path}")
-    print(f"Release gate summary: crashed={crashed}, "
-          f"hash_shots={len(hash_shots)}, clean_shots={len(clean_shots)}, "
-          f"hash_pass={release_gate['hash_stability']['passed']}, "
-          f"lights_pass={release_gate['lights']['passed']}, "
-          f"movement_pass={release_gate['movement']['passed']}, "
-          f"log_pass={release_gate['log']['passed']}, "
-          f"passed={release_gate['passed']}")
-    restore_nightly_mod_override(disabled_nightly_mod)
-    return bool(release_gate["passed"])
-
-
-def do_batch_legacy(start, end, total, build_first=False):
-    """Run multiple test iterations with randomized movement, commit each."""
-    if build_first:
-        build_proxy()
-        build_first = False  # only build once
-
-    for i in range(start, end + 1):
-        print(f"\n{'='*60}")
-        print(f"  BATCH RUN #{i}/{total}")
-        print(f"{'='*60}")
-
-        seed = random.randint(0, 2**32 - 1)
-        random.seed(seed)
-        print(f"  Random seed: {seed}")
-
-        ok = do_test_legacy(build_first=False, randomize=True)
-
-        # Commit and push
-        print(f"\n=== Committing test #{i}/{total} ===")
-        repo = str(REPO_ROOT)
-
-        # Stage screenshots
-        subprocess.run(["git", "add", "patches/TombRaiderLegend/screenshots/"],
-                       cwd=repo, capture_output=True)
-        subprocess.run(["git", "add", "TombRaiderLegendRTX-"],
-                       cwd=repo, capture_output=True)
-
-        # Stage run.py if this is the first run (captures the randomization code)
-        subprocess.run(["git", "add", "patches/TombRaiderLegend/run.py"],
-                       cwd=repo, capture_output=True)
-
-        crash_note = " [CRASHED]" if not ok else ""
-        msg = f"test: stable hash build #{i}/{total}{crash_note}"
-        subprocess.run(["git", "commit", "-m", msg,
-                        "--allow-empty"],
-                       cwd=repo, capture_output=True)
-
-        # Push
-        subprocess.run(["git", "push", "origin", "master:main"],
-                       cwd=repo, capture_output=True, timeout=30)
-        print(f"  Pushed #{i}/{total}")
-
-        if not ok:
-            print(f"  WARNING: Test #{i} crashed — continuing to next run")
-
-    print(f"\n{'='*60}")
-    print(f"  BATCH COMPLETE: runs {start}-{end}/{total}")
-    print(f"{'='*60}")
-
-
 def main():
     parser = argparse.ArgumentParser(
-        description="TRL RTX test orchestrator")
+        description="TRL RTX hash stability test orchestrator")
     sub = parser.add_subparsers(dest="mode")
-
-    # --- Authoritative release gate ---
-    test_p = sub.add_parser("test",
-                            help="Full stage-light end-to-end release gate")
-    test_p.add_argument("--build", action="store_true",
-                        help="Build and deploy proxy before testing")
-    test_p.add_argument("--randomize", action="store_true",
-                        help="Randomize the movement macro before testing")
 
     # --- Hash-only screening ---
     test_hash_p = sub.add_parser("test-hash",
@@ -1810,50 +1123,13 @@ def main():
     test_hash_p.add_argument("--quick", action="store_true",
                              help="Skip dx9tracer phase (Phase 4)")
 
-    # --- Record ---
-    sub.add_parser("record",
-                   help="Launch game and record inputs as test_session macro")
-
-    # --- Backward-compatible aliases ---
-    legacy_test_p = sub.add_parser("test-legacy", help=argparse.SUPPRESS)
-    legacy_test_p.add_argument("--build", action="store_true")
-    legacy_test_p.add_argument("--randomize", action="store_true")
-
-    batch_p = sub.add_parser("batch",
-                             help="Batch runs with random movement")
-    batch_p.add_argument("--start", type=int, required=True)
-    batch_p.add_argument("--end", type=int, required=True)
-    batch_p.add_argument("--total", type=int, default=50)
-    batch_p.add_argument("--build", action="store_true")
-
-    legacy_batch_p = sub.add_parser("batch-legacy", help=argparse.SUPPRESS)
-    legacy_batch_p.add_argument("--start", type=int, required=True)
-    legacy_batch_p.add_argument("--end", type=int, required=True)
-    legacy_batch_p.add_argument("--total", type=int, default=50)
-    legacy_batch_p.add_argument("--build", action="store_true")
-
     args = parser.parse_args()
 
-    if args.mode == "test":
-        raise SystemExit(0 if do_test_legacy(
-            build_first=args.build,
-            randomize=getattr(args, "randomize", False),
-        ) else 1)
-    elif args.mode == "test-hash":
+    if args.mode == "test-hash":
         raise SystemExit(0 if do_test_hash_stability(
             build_first=args.build,
             quick=getattr(args, 'quick', False),
         ) else 1)
-    elif args.mode == "record":
-        do_record()
-    elif args.mode == "test-legacy":
-        raise SystemExit(0 if do_test_legacy(
-            build_first=args.build,
-            randomize=getattr(args, 'randomize', False),
-        ) else 1)
-    elif args.mode in {"batch", "batch-legacy"}:
-        do_batch_legacy(args.start, args.end, args.total,
-                        build_first=args.build)
     else:
         parser.print_help()
 
