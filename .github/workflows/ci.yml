@@ -10,6 +10,8 @@ jobs:
   # Python tools (retools, livetools, automation scripts)
   test-python:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
     strategy:
       matrix:
         python-version: ["3.10", "3.12"]
@@ -26,6 +28,8 @@ jobs:
 
   test-trl-nightly:
     runs-on: windows-latest
+    env:
+      PYTHONPATH: .
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python 3.12
