@@ -360,6 +360,7 @@ class SignatureDB:
     def __init__(self, path: str = ":memory:"):
         self._conn = sqlite3.connect(path)
         self._conn.execute("PRAGMA journal_mode=WAL")
+        self._byte_sigs_cache: list[tuple] | None = None
         self._init_schema()
 
     def _init_schema(self) -> None:
@@ -410,6 +411,7 @@ class SignatureDB:
             (name, pattern, mask, func_size, tail_crc, compiler, source, category),
         )
         self._conn.commit()
+        self._byte_sigs_cache = None
 
     def add_structural_sig(
         self, *, name: str, block_count: int, edge_count: int,
@@ -446,13 +448,16 @@ class SignatureDB:
 
         # TODO: Full-table scan. Add prefix index on first non-wildcarded
         # bytes when the database grows large enough to matter.
-        cur = self._conn.execute(
-            "SELECT name, pattern, mask, func_size, tail_crc, "
-            "compiler, source, category FROM byte_sigs"
-        )
+        if self._byte_sigs_cache is None:
+            cur = self._conn.execute(
+                "SELECT name, pattern, mask, func_size, tail_crc, "
+                "compiler, source, category FROM byte_sigs"
+            )
+            self._byte_sigs_cache = cur.fetchall()
+
         candidates: list[tuple[Match, float]] = []
 
-        for name, pattern, mask, db_size, db_tail_crc, compiler, source, category in cur:
+        for name, pattern, mask, db_size, db_tail_crc, compiler, source, category in self._byte_sigs_cache:
             if not _masked_eq(code32, pattern, mask):
                 continue
             score = 0.7  # base confidence for byte match
