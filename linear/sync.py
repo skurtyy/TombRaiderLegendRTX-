@@ -54,17 +54,18 @@ def main() -> None:
     last_synced = config.get("last_synced_build", -1)
 
     builds = parse_changelog()
-    last_build = builds[-1] if builds else None
+    # Use max by build number — CHANGELOG is newest-first so [-1] would be oldest
+    latest = max(builds, key=lambda b: b["build"]) if builds else None
 
-    if last_build and last_build["build"] > last_synced:
-        title = f"Build {last_build['build']} — {last_build['result'].upper()}"
-        body = "\n".join(last_build["lines"][:30])
+    if latest and latest["build"] > last_synced:
+        title = f"Build {latest['build']} — {latest['result'].upper()}"
+        body = "\n".join(latest["lines"][:30])
         issue_id = create_issue(team_id, title, body, [])
         print(f"Created: {issue_id}")
-        config["last_synced_build"] = last_build["build"]
+        config["last_synced_build"] = latest["build"]
         config_path.write_text(json.dumps(config, indent=2))
-    elif last_build:
-        print(f"Build {last_build['build']} already synced, skipping.")
+    elif latest:
+        print(f"Build {latest['build']} already synced, skipping.")
     else:
         print("No builds found in changelog.")
 
