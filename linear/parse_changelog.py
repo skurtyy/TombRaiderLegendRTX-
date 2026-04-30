@@ -6,6 +6,11 @@ Supports TRL headings:
 
 Build number is the highest in a range (077 from BUILDS-076-077).
 Non-build headings (TERRAIN-ANALYSIS, BOOTSTRAP, etc.) are skipped.
+
+Result classification rules:
+  - 'fail' is sticky: a confirmed failure cannot be downgraded by later
+    positive body text (e.g. 'visible', 'stable' in analysis prose).
+  - 'pass' upgrades from 'unknown' only.
 """
 import re
 from pathlib import Path
@@ -16,6 +21,9 @@ _BUILD_RE = re.compile(
     r"^##\s+\[[^\]]+\]\s+BUILDS?-(\d+)(?:-(\d+))?",
     re.IGNORECASE,
 )
+
+_PASS_WORDS = ("pass", "working", "fixed", "confirmed", "stable")
+_FAIL_WORDS = ("fail", "broken", "regression", "black screen", "crash")
 
 
 def parse_changelog(path: str = "CHANGELOG.md") -> list[dict[str, Any]]:
@@ -28,7 +36,6 @@ def parse_changelog(path: str = "CHANGELOG.md") -> list[dict[str, Any]]:
         if m:
             if current:
                 builds.append(current)
-            # Use the upper bound of a range (e.g. 077 from BUILDS-076-077)
             build_num = int(m.group(2) if m.group(2) else m.group(1))
             current = {
                 "build": build_num,
@@ -42,9 +49,10 @@ def parse_changelog(path: str = "CHANGELOG.md") -> list[dict[str, Any]]:
             continue
         current["lines"].append(line)
         low = line.lower()
-        if any(w in low for w in ("pass", "working", "visible", "fixed", "confirmed", "stable")):
+        # fail is sticky: once set, body-text positives cannot flip it back
+        if current["result"] != "fail" and any(w in low for w in _PASS_WORDS):
             current["result"] = "pass"
-        if any(w in low for w in ("fail", "broken", "regression", "black screen", "crash")):
+        if any(w in low for w in _FAIL_WORDS):
             current["result"] = "fail"
         if "dead end" in low or "dead-end" in low:
             current["dead_ends"].append(line.strip())
