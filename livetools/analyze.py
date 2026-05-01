@@ -223,11 +223,20 @@ def _show_intervals_range(records: list[dict], range_str: str) -> str:
         lo, hi = int(parts[0]), int(parts[1])
     except ValueError:
         return "Invalid range format. Use N:M"
-    subset = [r for r in records if lo <= (r.get("interval", -1) or -1) <= hi]
-    lines = [f"Intervals {lo}..{hi}: {len(subset)} records", ""]
+
     by_iv: dict[int, int] = Counter()
-    for r in subset:
-        by_iv[r.get("interval", 0)] += 1
+    total = 0
+    for r in records:
+        # Original logic: lo <= (r.get("interval", -1) or -1) <= hi
+        val = r.get("interval", -1)
+        filter_val = val or -1
+        if lo <= filter_val <= hi:
+            # Original counting logic: by_iv[r.get("interval", 0)] += 1
+            count_val = r.get("interval", 0)
+            by_iv[count_val] += 1
+            total += 1
+
+    lines = [f"Intervals {lo}..{hi}: {total} records", ""]
     for iv in sorted(by_iv):
         lines.append(f"  Interval {iv}: {by_iv[iv]} records")
     return "\n".join(lines)
