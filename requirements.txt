@@ -6,3 +6,4 @@ minidump>=0.0.24
 pyghidra>=2.0.0,<4.0.0
 numpy>=2.1.0
 Pillow>=10.4.0
+orjson>=3.10.0

@@ -7,12 +7,19 @@ call graph building, and more.
 """
 from __future__ import annotations
 
+
 import argparse
 import csv
 import json
 import math
 import subprocess
 import sys
+
+try:
+    import orjson
+    HAS_ORJSON = True
+except ImportError:
+    HAS_ORJSON = False
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -41,15 +48,20 @@ def load_records(path: str, filt: str | None = None) -> list[dict]:
     if filt:
         field, op, val = _parse_filter(filt)
 
+    _loads = orjson.loads if HAS_ORJSON else json.loads
+    _JSONDecodeError = orjson.JSONDecodeError if HAS_ORJSON else json.JSONDecodeError
+
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
+
             try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
+                rec = _loads(line)
+            except _JSONDecodeError:
                 continue
+
             if field and not _match_filter(rec, field, op, val):
                 continue
             records.append(rec)
