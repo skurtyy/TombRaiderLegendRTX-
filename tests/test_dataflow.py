@@ -244,6 +244,65 @@ class TestBackwardSlice:
         vas = [entry[0] for entry in result]
         assert 0x401000 not in vas
 
+
+    def test_target_va_not_found(self):
+        """If target_va is not found, fallback to last instruction."""
+        from dataflow import backward_slice
+        cs = Cs(CS_ARCH_X86, CS_MODE_32)
+        cs.detail = True
+        code = b"\xB8\x05\x00\x00\x00" + b"\x83\xC0\x03"
+        insns = list(cs.disasm(code, 0x401000))
+        # 0x999999 is not in the instructions
+        result = backward_slice(insns, 0x999999, "eax")
+        vas = [entry[0] for entry in result]
+        assert 0x401000 in vas  # mov eax, 5
+        assert insns[-1].address in vas  # add eax, 3
+
+    def test_max_depth_limit(self):
+        """max_depth should limit how far back the slice goes."""
+        from dataflow import backward_slice
+        cs = Cs(CS_ARCH_X86, CS_MODE_32)
+        cs.detail = True
+        # mov eax, 5; add eax, 1; add eax, 2; add eax, 3
+        code = b"\xB8\x05\x00\x00\x00" + b"\x83\xC0\x01" + b"\x83\xC0\x02" + b"\x83\xC0\x03"
+        insns = list(cs.disasm(code, 0x401000))
+        target_va = insns[-1].address
+
+        # With full depth, we should get 4 instructions
+        result_full = backward_slice(insns, target_va, "eax", max_depth=50)
+        assert len(result_full) == 4
+
+        # With depth 2, we should only get the last 2 instructions
+        result_limited = backward_slice(insns, target_va, "eax", max_depth=2)
+        assert len(result_limited) == 2
+        vas = [entry[0] for entry in result_limited]
+        assert target_va in vas
+        assert insns[-2].address in vas
+        assert insns[-3].address not in vas
+        assert 0x401000 not in vas
+
+    def test_dependency_chain(self):
+        """Slice should track dependencies across registers (e.g., mov eax, ecx)."""
+        from dataflow import backward_slice
+        cs = Cs(CS_ARCH_X86, CS_MODE_32)
+        cs.detail = True
+        # mov ecx, 10; mov ebx, 20; mov eax, ecx; add eax, 5
+        code = b"\xB9\x0A\x00\x00\x00" + b"\xBB\x14\x00\x00\x00" + b"\x89\xC8" + b"\x83\xC0\x05"
+        insns = list(cs.disasm(code, 0x401000))
+        target_va = insns[-1].address
+
+        result = backward_slice(insns, target_va, "eax")
+        vas = [entry[0] for entry in result]
+
+        # Should include: add eax, 5
+        assert insns[-1].address in vas
+        # Should include: mov eax, ecx
+        assert insns[-2].address in vas
+        # Should NOT include: mov ebx, 20
+        assert insns[-3].address not in vas
+        # Should include: mov ecx, 10
+        assert insns[-4].address in vas
+
     def test_empty_insns(self):
         from dataflow import backward_slice
         result = backward_slice([], 0x401000, "eax")
