@@ -467,8 +467,12 @@ class Daemon:
         if output:
             p = Path(output) if os.path.isabs(output) else self._resolve_output_path(output)
             with open(p, "w", encoding="utf-8") as f:
-                for s in samples:
-                    f.write(json.dumps(s) + "\n")
+                if samples:
+                    chunk_size = 50000
+                    for i in range(0, len(samples), chunk_size):
+                        chunk = samples[i:i + chunk_size]
+                        f.write("\n".join(json.dumps(s) for s in chunk))
+                        f.write("\n")
 
         hook_diag = {"addr": addr, "hookVerified": result.get("hookVerified"),
                      "prologue": result.get("prologue")}
