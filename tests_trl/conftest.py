@@ -1,8 +1,10 @@
+import sys
+import os
+import pytest
 from pathlib import Path
 
-import pytest
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-
-@pytest.fixture(scope="session")
-def repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+@pytest.fixture
+def repo_root():
+    return Path(__file__).parent.parent
