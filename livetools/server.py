@@ -540,9 +540,8 @@ class Daemon:
                     for tid in trace_ids:
                         batch = self._trace_batches.get(tid, [])
                         if batch:
-                            for s in batch:
-                                f.write(json.dumps(s) + "\n")
-                                total_collected += 1
+                            f.write("".join([json.dumps(s) + "\n" for s in batch]))
+                            total_collected += len(batch)
                             self._trace_batches[tid] = []
                             f.flush()
 
@@ -562,9 +561,8 @@ class Daemon:
                 remaining = self._trace_batches.pop(tid, [])
                 if remaining:
                     with open(out_path, "a", encoding="utf-8") as f:
-                        for s in remaining:
-                            f.write(json.dumps(s) + "\n")
-                            total_collected += 1
+                        f.write("".join([json.dumps(s) + "\n" for s in remaining]))
+                        total_collected += len(remaining)
                 self._trace_done.pop(tid, None)
                 self._trace_events.pop(tid, None)
 
