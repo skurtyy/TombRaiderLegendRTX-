@@ -259,16 +259,7 @@ class TestByteExtraction:
         result = extract_byte_sig(mock_b, 0x1000)
         assert result is not None
         assert result[3] == 11  # The real function ended at ret (11) because nop run was interrupted by mov
-        # Wait, the code says:
-        # if insn.mnemonic == "ret":
-        #    last_ret_end = ...
-        # elif last_ret_end > 0:
-        #    if insn.mnemonic == "nop":
-        #        nop_run += 1
-        #        if nop_run >= 2: return last_ret_end
-        #    ...
-        #    else: nop_run = 0
-        # If it returns `last_ret_end`, then when it sees the two nops at the end, it will return `last_ret_end` which is 11.
+        # The function ends at ret (11) because the nop run was interrupted by mov
 
         # Edge 4: missing ret, just ends
         mov1_insn = MagicMock()
