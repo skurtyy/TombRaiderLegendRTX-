@@ -38,7 +38,7 @@ DEFAULT_DB_PATH = Path(__file__).resolve().parent / "data" / "signatures.db"
 _HF_REPO_DEFAULT = "RTX-Remix/Vibe-Reverse-Engineering-Signature-DB"
 _HF_URL_TEMPLATE = "https://huggingface.co/{repo}/resolve/main/{path}"
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -54,8 +54,11 @@ CREATE TABLE IF NOT EXISTS byte_sigs (
     tail_crc  INTEGER NOT NULL DEFAULT 0,
     compiler  TEXT    NOT NULL DEFAULT '',
     source    TEXT    NOT NULL DEFAULT '',
-    category  TEXT    NOT NULL DEFAULT ''
+    category  TEXT    NOT NULL DEFAULT '',
+    prefix    BLOB    NOT NULL DEFAULT x''
 );
+
+CREATE INDEX IF NOT EXISTS ix_byte_sigs_prefix ON byte_sigs (prefix);
 
 CREATE TABLE IF NOT EXISTS structural_sigs (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -371,6 +374,7 @@ class SignatureDB:
             row = self._conn.execute(
                 "SELECT version FROM schema_version"
             ).fetchone()
+
             if row and row[0] > SCHEMA_VERSION:
                 self._conn.close()
                 self._conn = None
@@ -378,6 +382,18 @@ class SignatureDB:
                     f"Database schema version {row[0]} is newer than "
                     f"code version {SCHEMA_VERSION}. Update the code."
                 )
+
+            # Migration from 1 to 2: Add prefix column to byte_sigs
+            if row and row[0] == 1 and SCHEMA_VERSION == 2:
+                self._conn.execute("ALTER TABLE byte_sigs ADD COLUMN prefix BLOB NOT NULL DEFAULT x''")
+                cur_sigs = self._conn.execute("SELECT id, pattern, mask FROM byte_sigs").fetchall()
+                for sig_id, pattern, mask in cur_sigs:
+                    prefix = _extract_prefix(pattern, mask)
+                    self._conn.execute("UPDATE byte_sigs SET prefix = ? WHERE id = ?", (prefix, sig_id))
+                self._conn.execute("CREATE INDEX IF NOT EXISTS ix_byte_sigs_prefix ON byte_sigs (prefix)")
+                self._conn.execute("UPDATE schema_version SET version = 2")
+                self._conn.commit()
+
             # Existing DB with compatible version -- nothing to create
             return
 
@@ -403,11 +419,12 @@ class SignatureDB:
         func_size: int, tail_crc: int,
         compiler: str = "", source: str = "", category: str = "",
     ) -> None:
+        prefix = _extract_prefix(pattern, mask)
         self._conn.execute(
             "INSERT INTO byte_sigs "
-            "(name, pattern, mask, func_size, tail_crc, compiler, source, category) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (name, pattern, mask, func_size, tail_crc, compiler, source, category),
+            "(name, pattern, mask, func_size, tail_crc, compiler, source, category, prefix) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (name, pattern, mask, func_size, tail_crc, compiler, source, category, prefix),
         )
         self._conn.commit()
 
@@ -444,12 +461,15 @@ class SignatureDB:
             return []
         code32 = code[:32]
 
-        # TODO: Full-table scan. Add prefix index on first non-wildcarded
-        # bytes when the database grows large enough to matter.
-        cur = self._conn.execute(
+        # Generate all possible prefixes (lengths 0 to 8)
+        prefixes = [code32[:i] for i in range(min(len(code32), 8) + 1)]
+
+        query = (
             "SELECT name, pattern, mask, func_size, tail_crc, "
-            "compiler, source, category FROM byte_sigs"
+            "compiler, source, category FROM byte_sigs "
+            f"WHERE prefix IN ({','.join(['?'] * len(prefixes))})"
         )
+        cur = self._conn.execute(query, prefixes)
         candidates: list[tuple[Match, float]] = []
 
         for name, pattern, mask, db_size, db_tail_crc, compiler, source, category in cur:
@@ -708,6 +728,15 @@ def _scan_for_pattern(data: bytes, pattern: bytes, mask: bytes) -> bool:
         if _masked_eq(data[i:i + plen], pattern, mask):
             return True
     return False
+
+def _extract_prefix(pattern: bytes, mask: bytes, max_len: int = 8) -> bytes:
+    """Extract the longest contiguous prefix without wildcards."""
+    try:
+        first_wildcard = mask.index(0x00)
+    except ValueError:
+        first_wildcard = len(mask)
+    return pattern[:min(first_wildcard, max_len)]
+
 
 
 # ---------------------------------------------------------------------------
