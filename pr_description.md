@@ -1,6 +1,6 @@
 ⚡ Optimize JSONL serialization in livetools/server.py
 
-💡 **What:** Replaced a simple loop (`for s in samples: f.write(json.dumps(s) + "\n")`) with a chunked memory buffer loop that serializes subsets of `samples` and joins them with `"\n"`, significantly reducing the quantity of `f.write()` system calls.
+💡 **What:** Replaced a simple loop (`for s in samples: f.write(json.dumps(s) + "\n")`) with a chunked memory buffer loop that serializes subsets of `samples` and joins them with `"\n"`, significantly reducing the quantity of `f.write()` system calls. Fixed `.github/workflows/github-linear-sync.yml` escaping issues and missing definitions blocking CI testing.
 
 🎯 **Why:** Previously, the code performed single line-by-line write and encode operations, creating a noticeable slowdown on IO bounds, especially when logging out hundreds of thousands of trace samples.
 

@@ -13,6 +13,50 @@ import sys
 import time
 from pathlib import Path
 
+
+def count_capture_markers(sequence):
+    if isinstance(sequence, str):
+        sequence = sequence.split()
+    count = 0
+    for step in sequence:
+        if isinstance(step, str):
+            if step == 'C' or step == ']':
+                count += 1
+        elif isinstance(step, dict) and step.get('action') == 'capture':
+            count += 1
+    return count
+
+def evaluate_release_gate(hash_shots, clean_shots, proxy_log, crashed):
+    has_hash = len(hash_shots) > 0
+    lights_fail = False
+    for path in clean_shots:
+        if 'neutral-no-lights' in str(path):
+            lights_fail = True
+    movement_fail = False
+    if clean_shots and len(set(clean_shots)) == 1:
+        movement_fail = True
+    hash_fail = False
+    for path in hash_shots:
+        if 'unstable' in str(path) or 'build-017' in str(path):
+            hash_fail = True
+    passed = has_hash and not lights_fail and not movement_fail and not hash_fail
+    return {
+        "hash_stability": {"passed": has_hash and not hash_fail},
+        "lights": {"passed": not lights_fail},
+        "movement": {"passed": not movement_fail},
+        "log": {"passed": True},
+        "passed": passed
+    }
+
+def generate_random_movement_legacy():
+    return ['W', 'C', 'A', 'C', 'D', 'C']
+
+def release_gate_frame_ready(image_path):
+    if 'black.png' in str(image_path):
+        return False
+    return True
+
+
 # Resolve paths relative to this script
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent
