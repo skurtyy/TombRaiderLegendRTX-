@@ -28,6 +28,7 @@ from config import (
     PROXY_LOG,
 )
 from patches.TombRaiderLegend import launcher as stable_launcher
+
 SCREENSHOTS_DIR = SCRIPT_DIR / "screenshots"
 NIGHTLY_MOD_FILE = GAME_DIR / "rtx-remix" / "mods" / "trl-nightly" / "mod.usda"
 DEFAULT_LAUNCH_CHAPTER = 2
@@ -37,8 +38,9 @@ _MIN_CAPTURE_SIGNAL = 32
 _MIN_CAPTURE_STDDEV = 1.0
 
 
-def collect_screenshots(max_age_seconds=120, limit=3, after_ts=None,
-                        destination_dir=None):
+def collect_screenshots(
+    max_age_seconds=120, limit=3, after_ts=None, destination_dir=None
+):
     """Copy the most recent `limit` screenshots from NVIDIA capture folder.
 
     Taking only the most recent files ensures the copied images belong to the
@@ -50,12 +52,16 @@ def collect_screenshots(max_age_seconds=120, limit=3, after_ts=None,
         return []
 
     now = time.time()
-    files = sorted(SCREENSHOTS_SRC.iterdir(),
-                   key=lambda f: f.stat().st_mtime, reverse=True)
-    files = [f for f in files
-             if f.suffix.lower() in (".png", ".jpg", ".bmp")
-             and (now - f.stat().st_mtime) < max_age_seconds
-             and (after_ts is None or f.stat().st_mtime > after_ts)]
+    files = sorted(
+        SCREENSHOTS_SRC.iterdir(), key=lambda f: f.stat().st_mtime, reverse=True
+    )
+    files = [
+        f
+        for f in files
+        if f.suffix.lower() in (".png", ".jpg", ".bmp")
+        and (now - f.stat().st_mtime) < max_age_seconds
+        and (after_ts is None or f.stat().st_mtime > after_ts)
+    ]
     files = files[:limit]
 
     if not files:
@@ -71,8 +77,10 @@ def collect_screenshots(max_age_seconds=120, limit=3, after_ts=None,
         collected.append(dest)
         print(f"  Screenshot: {f.name}")
 
-    print(f"Collected {len(collected)} screenshots (last {max_age_seconds}s, "
-          f"limit={limit}) to {target_dir}/")
+    print(
+        f"Collected {len(collected)} screenshots (last {max_age_seconds}s, "
+        f"limit={limit}) to {target_dir}/"
+    )
     return collected
 
 
@@ -130,8 +138,9 @@ def _capture_window_client_image(hwnd):
     )
 
 
-def capture_window_image(hwnd, destination: Path, *, prefer_nvidia: bool = True,
-                         attempts: int = 3):
+def capture_window_image(
+    hwnd, destination: Path, *, prefer_nvidia: bool = True, attempts: int = 3
+):
     """Capture a usable game frame and save it to `destination`."""
     from gamepilot.capture import capture_nvidia
     from livetools.gamectl import find_hwnd_by_exe, focus_hwnd
@@ -141,7 +150,9 @@ def capture_window_image(hwnd, destination: Path, *, prefer_nvidia: bool = True,
         if refreshed_hwnd:
             hwnd = refreshed_hwnd
         if not hwnd:
-            print(f"WARNING: Capture attempt {attempt}/{attempts} could not find the game window")
+            print(
+                f"WARNING: Capture attempt {attempt}/{attempts} could not find the game window"
+            )
             time.sleep(0.4)
             continue
 
@@ -151,11 +162,15 @@ def capture_window_image(hwnd, destination: Path, *, prefer_nvidia: bool = True,
         if image is None or not _image_has_signal(image):
             image = capture_nvidia(hwnd) if prefer_nvidia else None
         if image is None:
-            print(f"WARNING: Capture attempt {attempt}/{attempts} failed for {destination.name}")
+            print(
+                f"WARNING: Capture attempt {attempt}/{attempts} failed for {destination.name}"
+            )
             time.sleep(0.4)
             continue
         if not _image_has_signal(image):
-            print(f"WARNING: Capture attempt {attempt}/{attempts} produced a blank frame for {destination.name}")
+            print(
+                f"WARNING: Capture attempt {attempt}/{attempts} produced a blank frame for {destination.name}"
+            )
             time.sleep(0.4)
             continue
 
@@ -188,8 +203,9 @@ def wait_for_fresh_proxy_log(after_ts: float, timeout_seconds: int = 70) -> bool
     return False
 
 
-def deploy_runtime_bundle(proxy_dir=PROXY_DIR, proxy_ini_path=None,
-                          rtx_conf_path=None, game_dir=GAME_DIR):
+def deploy_runtime_bundle(
+    proxy_dir=PROXY_DIR, proxy_ini_path=None, rtx_conf_path=None, game_dir=GAME_DIR
+):
     """Deploy authoritative TRL runtime files to the live game directory."""
     proxy_dir = Path(proxy_dir)
     proxy_ini_path = Path(proxy_ini_path) if proxy_ini_path else proxy_dir / "proxy.ini"
@@ -214,10 +230,14 @@ def deploy_runtime_bundle(proxy_dir=PROXY_DIR, proxy_ini_path=None,
         shutil.copy2(str(rtx_conf_path), str(game_rtx_conf))
         print(f"Deployed d3d9.dll + proxy.ini + rtx.conf (seeded) to {game_dir.name}/")
     elif game_rtx_conf.exists():
-        print(f"Deployed d3d9.dll + proxy.ini to {game_dir.name}/ "
-              f"(preserved existing rtx.conf with runtime texture tags)")
+        print(
+            f"Deployed d3d9.dll + proxy.ini to {game_dir.name}/ "
+            f"(preserved existing rtx.conf with runtime texture tags)"
+        )
     else:
-        print(f"Deployed d3d9.dll + proxy.ini to {game_dir.name}/ (no rtx.conf template)")
+        print(
+            f"Deployed d3d9.dll + proxy.ini to {game_dir.name}/ (no rtx.conf template)"
+        )
 
 
 def suspend_nightly_mod_override() -> Path | None:
@@ -240,8 +260,9 @@ def restore_nightly_mod_override(disabled_path: Path | None) -> None:
     print(f"Restored nightly mod override: {NIGHTLY_MOD_FILE.name}")
 
 
-def build_proxy_bundle(proxy_dir=PROXY_DIR, proxy_ini_path=None,
-                       rtx_conf_path=None, game_dir=GAME_DIR):
+def build_proxy_bundle(
+    proxy_dir=PROXY_DIR, proxy_ini_path=None, rtx_conf_path=None, game_dir=GAME_DIR
+):
     """Build and deploy a TRL proxy bundle with the game directory as cwd."""
     proxy_dir = Path(proxy_dir)
     build_bat = proxy_dir / "build.bat"
@@ -249,13 +270,11 @@ def build_proxy_bundle(proxy_dir=PROXY_DIR, proxy_ini_path=None,
         raise FileNotFoundError(f"build.bat not found: {build_bat}")
 
     print("\n=== Building proxy ===")
-    command = f'pushd "{proxy_dir}" && call "{build_bat.name}"'
     r = subprocess.run(
-        command,
+        ["cmd", "/c", build_bat.name],
         capture_output=True,
         text=True,
-        shell=True,
-        cwd=str(game_dir),
+        cwd=str(proxy_dir),
     )
     print(r.stdout)
     if r.returncode != 0:
@@ -276,10 +295,12 @@ def set_graphics_config():
     only water FX enabled (other expensive effects off for clean captures).
     """
     import winreg
+
     gfx_path = r"Software\Crystal Dynamics\Tomb Raider: Legend\Graphics"
     try:
-        key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, gfx_path,
-                                 0, winreg.KEY_ALL_ACCESS)
+        key = winreg.CreateKeyEx(
+            winreg.HKEY_CURRENT_USER, gfx_path, 0, winreg.KEY_ALL_ACCESS
+        )
 
         # Read current adapter GUID and mode so we can preserve them
         try:
@@ -313,7 +334,7 @@ def set_graphics_config():
             "DisablePureDevice": 0,
             "DontDeferShaderCreation": 1,
             "AlwaysRenderZPassFirst": 0,
-            "CreateGameFourCC": 0,          # Not needed, can cause format issues
+            "CreateGameFourCC": 0,  # Not needed, can cause format issues
             "NoDynamicTextures": 0,
             "Shadows": 0,
             "AntiAlias": 0,
@@ -326,11 +347,9 @@ def set_graphics_config():
 
         # Preserve adapter GUID and fullscreen mode (prevents setup screen)
         if adapter_guid:
-            winreg.SetValueEx(key, "AdapterIdentifier", 0,
-                              winreg.REG_SZ, adapter_guid)
+            winreg.SetValueEx(key, "AdapterIdentifier", 0, winreg.REG_SZ, adapter_guid)
         if mode_id:
-            winreg.SetValueEx(key, "FullscreenModeID", 0,
-                              winreg.REG_DWORD, mode_id)
+            winreg.SetValueEx(key, "FullscreenModeID", 0, winreg.REG_DWORD, mode_id)
 
         key.Close()
         print("Graphics config set (setup dialog bypassed)")
@@ -367,6 +386,7 @@ def dismiss_setup_dialog():
     WNDENUMPROC = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
 
     from livetools.gamectl import _find_pid
+
     pid = _find_pid("trl.exe")
     if not pid:
         return False
@@ -475,8 +495,7 @@ def dismiss_setup_dialog():
                     length = user32.SendMessageW(ch, CB_GETLBTEXTLEN, i, 0)
                     if length > 0:
                         buf = ctypes.create_unicode_buffer(length + 1)
-                        user32.SendMessageW(ch, CB_GETLBTEXT, i,
-                                            ctypes.addressof(buf))
+                        user32.SendMessageW(ch, CB_GETLBTEXT, i, ctypes.addressof(buf))
                         if target_text.lower() in buf.value.lower():
                             combo_select(ch, i)
                             print(f"    {label_text}: {buf.value}")
@@ -489,8 +508,7 @@ def dismiss_setup_dialog():
             length = user32.SendMessageW(best_combo, CB_GETLBTEXTLEN, i, 0)
             if length > 0:
                 buf = ctypes.create_unicode_buffer(length + 1)
-                user32.SendMessageW(best_combo, CB_GETLBTEXT, i,
-                                    ctypes.addressof(buf))
+                user32.SendMessageW(best_combo, CB_GETLBTEXT, i, ctypes.addressof(buf))
                 if target_text.lower() in buf.value.lower():
                     combo_select(best_combo, i)
                     print(f"    {label_text}: {buf.value}")
@@ -582,8 +600,7 @@ def write_tr7_arg(chapter=DEFAULT_LAUNCH_CHAPTER):
 def kill_game():
     """Kill the game and Remix launcher helpers if they are still alive."""
     for image_name in ("trl.exe", "NvRemixLauncher32.exe", "NvRemixBridge.exe"):
-        subprocess.run(["taskkill", "/f", "/im", image_name],
-                       capture_output=True)
+        subprocess.run(["taskkill", "/f", "/im", image_name], capture_output=True)
     time.sleep(2)
 
 
@@ -597,8 +614,11 @@ def require_live_game_window(hwnd=None, *, context="automation"):
     raise RuntimeError(f"Game window disappeared before {context}")
 
 
-def _advance_to_bolivia_level(hwnd, sequence=DEFAULT_POST_LOAD_SEQUENCE,
-                              settle_seconds=DEFAULT_POST_LOAD_SETTLE_SECONDS):
+def _advance_to_bolivia_level(
+    hwnd,
+    sequence=DEFAULT_POST_LOAD_SEQUENCE,
+    settle_seconds=DEFAULT_POST_LOAD_SETTLE_SECONDS,
+):
     """Advance from the chapter-2 load into the Bolivia gameplay state."""
     if not sequence:
         return require_live_game_window(hwnd, context="post-load automation")
@@ -615,9 +635,11 @@ def _advance_to_bolivia_level(hwnd, sequence=DEFAULT_POST_LOAD_SEQUENCE,
     return require_live_game_window(hwnd, context="Bolivia gameplay automation")
 
 
-def launch_game(chapter=DEFAULT_LAUNCH_CHAPTER,
-                post_load_sequence=DEFAULT_POST_LOAD_SEQUENCE,
-                post_load_settle_seconds=DEFAULT_POST_LOAD_SETTLE_SECONDS):
+def launch_game(
+    chapter=DEFAULT_LAUNCH_CHAPTER,
+    post_load_sequence=DEFAULT_POST_LOAD_SEQUENCE,
+    post_load_settle_seconds=DEFAULT_POST_LOAD_SETTLE_SECONDS,
+):
     """Launch TRL through the stable Peru path used by the dedicated launcher.
 
     The old TR7.arg -> chapter 2 -> Bolivia cutscene skip route is retained
@@ -628,11 +650,15 @@ def launch_game(chapter=DEFAULT_LAUNCH_CHAPTER,
         force_continue=stable_launcher.has_checkpoint()
     )
 
-    if (chapter != DEFAULT_LAUNCH_CHAPTER or
-            post_load_sequence != DEFAULT_POST_LOAD_SEQUENCE or
-            post_load_settle_seconds != DEFAULT_POST_LOAD_SETTLE_SECONDS):
-        print("NOTE: Ignoring legacy chapter/cutscene launch parameters; "
-              "using stable Peru launcher route")
+    if (
+        chapter != DEFAULT_LAUNCH_CHAPTER
+        or post_load_sequence != DEFAULT_POST_LOAD_SEQUENCE
+        or post_load_settle_seconds != DEFAULT_POST_LOAD_SETTLE_SECONDS
+    ):
+        print(
+            "NOTE: Ignoring legacy chapter/cutscene launch parameters; "
+            "using stable Peru launcher route"
+        )
 
     print(f"Using stable launch route: {route}")
     try:
@@ -684,7 +710,9 @@ def do_live_analysis_legacy(hwnd, duration_s=60):
     print("Attaching livetools...")
     r = subprocess.run(
         ["python", "-m", "livetools", "attach", "trl.exe"],
-        capture_output=True, text=True, cwd=str(REPO_ROOT)
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
     )
     if "Attached" not in r.stdout and "Attached" not in r.stderr:
         print(f"WARNING: livetools attach may have failed: {r.stderr}")
@@ -695,29 +723,62 @@ def do_live_analysis_legacy(hwnd, duration_s=60):
 
     print(f"Starting {duration_s}s data collection...")
     collect_render = subprocess.Popen(
-        ["python", "-m", "livetools", "collect",
-         "0x00413950", "0x0040E470", "0x00ECBB00",
-         "--duration", str(duration_s),
-         "--read", "ecx; eax; [esp+4]:4:hex; [esp+8]:4:hex",
-         "--fence", "0x00450DE0",
-         "--label", "0x00413950=SetWorldMatrix",
-         "--label", "0x0040E470=SetRenderStateCached",
-         "--label", "0x00ECBB00=UploadViewProjMatrices",
-         "--output", pipeline_file],
-        cwd=str(REPO_ROOT), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        [
+            "python",
+            "-m",
+            "livetools",
+            "collect",
+            "0x00413950",
+            "0x0040E470",
+            "0x00ECBB00",
+            "--duration",
+            str(duration_s),
+            "--read",
+            "ecx; eax; [esp+4]:4:hex; [esp+8]:4:hex",
+            "--fence",
+            "0x00450DE0",
+            "--label",
+            "0x00413950=SetWorldMatrix",
+            "--label",
+            "0x0040E470=SetRenderStateCached",
+            "--label",
+            "0x00ECBB00=UploadViewProjMatrices",
+            "--output",
+            pipeline_file,
+        ],
+        cwd=str(REPO_ROOT),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
 
     collect_lights = subprocess.Popen(
-        ["python", "-m", "livetools", "collect",
-         "0x0060C7D0", "0x006124E0", "0x0060B050", "0x0060E2D0",
-         "--duration", str(duration_s),
-         "--read", "ecx; eax; [esp+4]:4:hex",
-         "--label", "0x0060C7D0=RenderLights_FrustumCull",
-         "--label", "0x006124E0=LightVolume_Draw",
-         "--label", "0x0060B050=LightVisibilityCheck",
-         "--label", "0x0060E2D0=RenderLights_Caller",
-         "--output", light_file],
-        cwd=str(REPO_ROOT), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        [
+            "python",
+            "-m",
+            "livetools",
+            "collect",
+            "0x0060C7D0",
+            "0x006124E0",
+            "0x0060B050",
+            "0x0060E2D0",
+            "--duration",
+            str(duration_s),
+            "--read",
+            "ecx; eax; [esp+4]:4:hex",
+            "--label",
+            "0x0060C7D0=RenderLights_FrustumCull",
+            "--label",
+            "0x006124E0=LightVolume_Draw",
+            "--label",
+            "0x0060B050=LightVisibilityCheck",
+            "--label",
+            "0x0060E2D0=RenderLights_Caller",
+            "--output",
+            light_file,
+        ],
+        cwd=str(REPO_ROOT),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
 
     # Move Lara around while collecting data
@@ -738,7 +799,9 @@ def do_live_analysis_legacy(hwnd, duration_s=60):
             send_key("A", hold_ms=random.randint(400, 1200))
         elif phase == 1:
             for _ in range(5):
-                hwnd = require_live_game_window(hwnd, context="live analysis mouse look-right")
+                hwnd = require_live_game_window(
+                    hwnd, context="live analysis mouse look-right"
+                )
                 move_mouse_relative(random.randint(30, 80), random.randint(-15, 15))
                 time.sleep(0.1)
         elif phase == 2:
@@ -746,12 +809,16 @@ def do_live_analysis_legacy(hwnd, duration_s=60):
             send_key("D", hold_ms=random.randint(400, 1200))
         elif phase == 3:
             for _ in range(5):
-                hwnd = require_live_game_window(hwnd, context="live analysis mouse look-left")
+                hwnd = require_live_game_window(
+                    hwnd, context="live analysis mouse look-left"
+                )
                 move_mouse_relative(random.randint(-80, -30), random.randint(-15, 15))
                 time.sleep(0.1)
         elif phase == 4:
             for _ in range(5):
-                hwnd = require_live_game_window(hwnd, context="live analysis vertical look")
+                hwnd = require_live_game_window(
+                    hwnd, context="live analysis vertical look"
+                )
                 move_mouse_relative(random.randint(-10, 10), random.randint(-60, 60))
                 time.sleep(0.1)
         elif phase == 5:
@@ -772,20 +839,26 @@ def do_live_analysis_legacy(hwnd, duration_s=60):
     # Detach
     subprocess.run(
         ["python", "-m", "livetools", "detach"],
-        capture_output=True, text=True, cwd=str(REPO_ROOT)
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
     )
 
     # Run quick analysis
     print("\n=== Live Analysis Results ===")
     results = {}
-    for name, fpath in [("render_pipeline", pipeline_file),
-                        ("light_system", light_file)]:
+    for name, fpath in [
+        ("render_pipeline", pipeline_file),
+        ("light_system", light_file),
+    ]:
         fsize = Path(fpath).stat().st_size if Path(fpath).exists() else 0
         results[name] = {"file": fpath, "size": fsize}
         if fsize > 0:
             r = subprocess.run(
                 ["python", "-m", "livetools", "analyze", fpath, "--summary"],
-                capture_output=True, text=True, cwd=str(REPO_ROOT)
+                capture_output=True,
+                text=True,
+                cwd=str(REPO_ROOT),
             )
             print(f"\n{name}:")
             print(r.stdout)
@@ -800,14 +873,15 @@ def do_live_analysis_legacy(hwnd, duration_s=60):
 def set_debug_view(idx):
     """Set RTX Remix debug view index in rtx.conf."""
     import re
+
     rtx_conf = GAME_DIR / "rtx.conf"
     if not rtx_conf.exists():
         return
     text = rtx_conf.read_text()
     new_text = re.sub(
-        r'rtx\.debugView\.debugViewIdx\s*=\s*\d+',
-        f'rtx.debugView.debugViewIdx = {idx}',
-        text
+        r"rtx\.debugView\.debugViewIdx\s*=\s*\d+",
+        f"rtx.debugView.debugViewIdx = {idx}",
+        text,
     )
     if new_text != text:
         rtx_conf.write_text(new_text)
@@ -877,7 +951,9 @@ def do_livetools_diagnostics(hwnd):
     print("Attaching livetools...")
     r = subprocess.run(
         ["python", "-m", "livetools", "attach", "trl.exe"],
-        capture_output=True, text=True, cwd=str(REPO_ROOT)
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
     )
     if "Attached" not in r.stdout and "Attached" not in r.stderr:
         print(f"WARNING: livetools attach may have failed: {r.stderr}")
@@ -891,13 +967,21 @@ def do_livetools_diagnostics(hwnd):
     focus_hwnd(hwnd)
     time.sleep(0.5)
 
-    subprocess.run(["python", "-m", "livetools", "dipcnt", "on"],
-                   capture_output=True, text=True, cwd=str(REPO_ROOT))
+    subprocess.run(
+        ["python", "-m", "livetools", "dipcnt", "on"],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
     time.sleep(2)
 
     # Read at center
-    r = subprocess.run(["python", "-m", "livetools", "dipcnt", "read"],
-                       capture_output=True, text=True, cwd=str(REPO_ROOT))
+    r = subprocess.run(
+        ["python", "-m", "livetools", "dipcnt", "read"],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
     center_count = r.stdout.strip()
     print(f"  Center: {center_count}")
 
@@ -908,8 +992,12 @@ def do_livetools_diagnostics(hwnd):
         time.sleep(0.1)
     time.sleep(1)
 
-    r = subprocess.run(["python", "-m", "livetools", "dipcnt", "read"],
-                       capture_output=True, text=True, cwd=str(REPO_ROOT))
+    r = subprocess.run(
+        ["python", "-m", "livetools", "dipcnt", "read"],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
     left_count = r.stdout.strip()
     print(f"  Left: {left_count}")
 
@@ -920,16 +1008,26 @@ def do_livetools_diagnostics(hwnd):
         time.sleep(0.1)
     time.sleep(1)
 
-    r = subprocess.run(["python", "-m", "livetools", "dipcnt", "read"],
-                       capture_output=True, text=True, cwd=str(REPO_ROOT))
+    r = subprocess.run(
+        ["python", "-m", "livetools", "dipcnt", "read"],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
     right_count = r.stdout.strip()
     print(f"  Right: {right_count}")
 
-    subprocess.run(["python", "-m", "livetools", "dipcnt", "off"],
-                   capture_output=True, text=True, cwd=str(REPO_ROOT))
+    subprocess.run(
+        ["python", "-m", "livetools", "dipcnt", "off"],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
 
     results["dipcnt"] = {
-        "center": center_count, "left": left_count, "right": right_count
+        "center": center_count,
+        "left": left_count,
+        "right": right_count,
     }
 
     # 3b. Function call collection (15s during camera pan)
@@ -939,28 +1037,50 @@ def do_livetools_diagnostics(hwnd):
     fn_file = str(capture_dir / "live_functions.jsonl")
 
     collect_proc = subprocess.Popen(
-        ["python", "-m", "livetools", "collect",
-         "0x00413950", "0x00ECBB00", "0x0060C7D0", "0x0060B050",
-         "--duration", "15",
-         "--label", "0x00413950=SetWorldMatrix",
-         "--label", "0x00ECBB00=UploadViewProjMatrices",
-         "--label", "0x0060C7D0=RenderLights_FrustumCull",
-         "--label", "0x0060B050=LightVisibilityCheck",
-         "--output", fn_file],
-        cwd=str(REPO_ROOT), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        [
+            "python",
+            "-m",
+            "livetools",
+            "collect",
+            "0x00413950",
+            "0x00ECBB00",
+            "0x0060C7D0",
+            "0x0060B050",
+            "--duration",
+            "15",
+            "--label",
+            "0x00413950=SetWorldMatrix",
+            "--label",
+            "0x00ECBB00=UploadViewProjMatrices",
+            "--label",
+            "0x0060C7D0=RenderLights_FrustumCull",
+            "--label",
+            "0x0060B050=LightVisibilityCheck",
+            "--output",
+            fn_file,
+        ],
+        cwd=str(REPO_ROOT),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
 
     # Gentle camera movement during collection
-    hwnd = require_live_game_window(hwnd, context="livetools collection camera movement")
+    hwnd = require_live_game_window(
+        hwnd, context="livetools collection camera movement"
+    )
     focus_hwnd(hwnd)
     for _ in range(3):
         for _ in range(5):
-            hwnd = require_live_game_window(hwnd, context="livetools collection left sweep")
+            hwnd = require_live_game_window(
+                hwnd, context="livetools collection left sweep"
+            )
             move_mouse_relative(-20, 0)
             time.sleep(0.1)
         time.sleep(1)
         for _ in range(5):
-            hwnd = require_live_game_window(hwnd, context="livetools collection right sweep")
+            hwnd = require_live_game_window(
+                hwnd, context="livetools collection right sweep"
+            )
             move_mouse_relative(20, 0)
             time.sleep(0.1)
         time.sleep(1)
@@ -972,7 +1092,9 @@ def do_livetools_diagnostics(hwnd):
     if fn_size > 0:
         r = subprocess.run(
             ["python", "-m", "livetools", "analyze", fn_file, "--summary"],
-            capture_output=True, text=True, cwd=str(REPO_ROOT)
+            capture_output=True,
+            text=True,
+            cwd=str(REPO_ROOT),
         )
         print(r.stdout)
         results["collect"]["summary"] = r.stdout
@@ -999,17 +1121,32 @@ def do_livetools_diagnostics(hwnd):
     print("\n--- 3d: VB mutation check (memwatch) ---")
     # Quick trace to discover a VB address
     r = subprocess.run(
-        ["python", "-m", "livetools", "trace", "0x00413950",
-         "--count", "3", "--read", "[esp+4]:4:hex"],
-        capture_output=True, text=True, cwd=str(REPO_ROOT)
+        [
+            "python",
+            "-m",
+            "livetools",
+            "trace",
+            "0x00413950",
+            "--count",
+            "3",
+            "--read",
+            "[esp+4]:4:hex",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
     )
     print(f"  SetWorldMatrix trace sample: {r.stdout.strip()[:200]}")
     results["memwatch"] = {"note": "VB mutation check logged"}
 
     # Detach
     print("\nDetaching livetools...")
-    subprocess.run(["python", "-m", "livetools", "detach"],
-                   capture_output=True, text=True, cwd=str(REPO_ROOT))
+    subprocess.run(
+        ["python", "-m", "livetools", "detach"],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
 
     return results
 
@@ -1046,6 +1183,7 @@ def do_test_hash_stability(build_first=False, quick=False):
             print(f"Proxy log copied to {dest}")
 
         from livetools.gamectl import find_hwnd_by_exe
+
         crashed_p1 = not find_hwnd_by_exe("trl.exe")
         if crashed_p1:
             print("WARNING: Game crashed during Phase 1!")
@@ -1058,6 +1196,7 @@ def do_test_hash_stability(build_first=False, quick=False):
         clean_shots = camera_pan_and_screenshot(hwnd2, "Phase 2 — Clean Render")
 
         from livetools.gamectl import find_hwnd_by_exe
+
         crashed_p2 = not find_hwnd_by_exe("trl.exe")
         if crashed_p2:
             print("WARNING: Game crashed during Phase 2!")
@@ -1075,6 +1214,7 @@ def do_test_hash_stability(build_first=False, quick=False):
         diag_results = do_livetools_diagnostics(hwnd3)
 
         from livetools.gamectl import find_hwnd_by_exe
+
         crashed_p3 = not find_hwnd_by_exe("trl.exe")
         if crashed_p3:
             print("WARNING: Game crashed during Phase 3!")
@@ -1099,7 +1239,9 @@ def do_test_hash_stability(build_first=False, quick=False):
         print(f"  Clean render screenshots: {len(clean_shots)}")
         if diag_results and "dipcnt" in diag_results:
             d = diag_results["dipcnt"]
-            print(f"  Draw counts: center={d['center']} left={d['left']} right={d['right']}")
+            print(
+                f"  Draw counts: center={d['center']} left={d['left']} right={d['right']}"
+            )
         if diag_results and "patches" in diag_results:
             for addr, val in diag_results["patches"].items():
                 print(f"  Patch {addr}: {val}")
@@ -1113,6 +1255,7 @@ def do_test_hash_stability(build_first=False, quick=False):
 def release_gate_frame_ready(path: Path) -> bool:
     """Return True if path is a usable game frame (not a black transition screen)."""
     from PIL import Image, ImageStat
+
     image = Image.open(path).convert("RGB")
     stat = ImageStat.Stat(image)
     mean_brightness = sum(float(v) for v in stat.mean) / 3.0
@@ -1220,7 +1363,10 @@ def evaluate_release_gate(
     )
 
     return {
-        "hash_stability": {"passed": hash_stability_passed, "retention_pct": hash_retention},
+        "hash_stability": {
+            "passed": hash_stability_passed,
+            "retention_pct": hash_retention,
+        },
         "lights": {"passed": lights_passed},
         "movement": {"passed": movement_passed},
         "log": {"passed": log_passed},
@@ -1230,24 +1376,32 @@ def evaluate_release_gate(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="TRL RTX hash stability test orchestrator")
+        description="TRL RTX hash stability test orchestrator"
+    )
     sub = parser.add_subparsers(dest="mode")
 
     # --- Hash-only screening ---
-    test_hash_p = sub.add_parser("test-hash",
-                                 help="Hash stability test (camera-only, no WASD)")
-    test_hash_p.add_argument("--build", action="store_true",
-                             help="Build and deploy proxy before testing")
-    test_hash_p.add_argument("--quick", action="store_true",
-                             help="Skip dx9tracer phase (Phase 4)")
+    test_hash_p = sub.add_parser(
+        "test-hash", help="Hash stability test (camera-only, no WASD)"
+    )
+    test_hash_p.add_argument(
+        "--build", action="store_true", help="Build and deploy proxy before testing"
+    )
+    test_hash_p.add_argument(
+        "--quick", action="store_true", help="Skip dx9tracer phase (Phase 4)"
+    )
 
     args = parser.parse_args()
 
     if args.mode == "test-hash":
-        raise SystemExit(0 if do_test_hash_stability(
-            build_first=args.build,
-            quick=getattr(args, 'quick', False),
-        ) else 1)
+        raise SystemExit(
+            0
+            if do_test_hash_stability(
+                build_first=args.build,
+                quick=getattr(args, "quick", False),
+            )
+            else 1
+        )
     else:
         parser.print_help()
 
