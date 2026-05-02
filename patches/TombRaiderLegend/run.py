@@ -1607,7 +1607,7 @@ def do_test_hash_stability(build_first=False, quick=False):
         restore_nightly_mod_override(disabled_nightly_mod)
 
 
-def do_test_legacy(build_first=False, randomize=False):
+def _do_test_legacy_impl(build_first=False, randomize=False):
     """Run the authoritative stage-light end-to-end release gate."""
     from livetools.gamectl import load_macros
 
@@ -1735,7 +1735,6 @@ def do_test_legacy(build_first=False, randomize=False):
           f"movement_pass={release_gate['movement']['passed']}, "
           f"log_pass={release_gate['log']['passed']}, "
           f"passed={release_gate['passed']}")
-    restore_nightly_mod_override(disabled_nightly_mod)
     return bool(release_gate["passed"])
 
 
@@ -1777,9 +1776,12 @@ def do_batch_legacy(start, end, total, build_first=False):
                        cwd=repo, capture_output=True)
 
         # Push
-        subprocess.run(["git", "push", "origin", "master:main"],
+        res = subprocess.run(["git", "push", "origin", "master:main"],
                        cwd=repo, capture_output=True, timeout=30)
-        print(f"  Pushed #{i}/{total}")
+        if res.returncode == 0:
+            print(f"  Pushed #{i}/{total}")
+        else:
+            print(f"  Failed to push #{i}/{total}: {res.stderr.decode('utf-8')}")
 
         if not ok:
             print(f"  WARNING: Test #{i} crashed — continuing to next run")
@@ -1860,3 +1862,11 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def do_test_legacy(build_first=False, randomize=False):
+    disabled_nightly_mod = suspend_nightly_mod_override()
+    try:
+        return _do_test_legacy_impl(build_first, randomize)
+    finally:
+        restore_nightly_mod_override(disabled_nightly_mod)
