@@ -49,7 +49,7 @@ class Daemon:
 
         self._steptrace_event = threading.Event()
 
-    # ── Frida setup ────────────────────────────────────────────────────────
+    # ── Frida setup ─────────────────────────────────────────────────────────────
 
     def attach(self) -> None:
         self.dev = frida.get_local_device()
@@ -143,7 +143,7 @@ class Daemon:
         elif message.get("type") == "error":
             print(f"[agent error] {message.get('description', '?')}", file=sys.stderr)
 
-    # ── helpers ────────────────────────────────────────────────────────────
+    # ── helpers ───────────────────────────────────────────────────────────────────
 
     def _base_resp(self) -> dict:
         api = self.api
@@ -164,7 +164,7 @@ class Daemon:
         traces_dir.mkdir(parents=True, exist_ok=True)
         return traces_dir / filename
 
-    # ── command dispatch ───────────────────────────────────────────────────
+    # ── command dispatch ───────────────────────────────────────────────────────
 
     def handle(self, cmd: dict) -> dict:
         op = cmd.get("cmd", "")
@@ -176,7 +176,7 @@ class Daemon:
         except Exception as exc:
             return {**self._base_resp(), "ok": False, "error": str(exc)}
 
-    # ── existing commands (unchanged) ──────────────────────────────────────
+    # ── existing commands (unchanged) ─────────────────────────────────────────────
 
     def _cmd_status(self, cmd: dict) -> dict:
         return {**self._base_resp(), "ok": True}
@@ -419,7 +419,7 @@ class Daemon:
         self._running = False
         return {**self._base_resp(), "ok": True, "msg": "detaching"}
 
-    # ── NEW: trace ─────────────────────────────────────────────────────────
+    # ── NEW: trace ────────────────────────────────────────────────────────────────────
 
     def _cmd_trace(self, cmd: dict) -> dict:
         addr = cmd["addr"]
@@ -480,7 +480,7 @@ class Daemon:
                 "count": len(samples), "output": str(output) if output else None,
                 "hookDiag": hook_diag}
 
-    # ── NEW: collect ───────────────────────────────────────────────────────
+    # ── NEW: collect ───────────────────────────────────────────────────────────────────
 
     def _cmd_collect(self, cmd: dict) -> dict:
         addrs = cmd.get("addrs", [])
@@ -577,7 +577,7 @@ class Daemon:
                 "fenceCount": self.api.get_fence_counter(),
                 "hookDiags": hook_diags}
 
-    # ── NEW: steptrace ─────────────────────────────────────────────────────
+    # ── NEW: steptrace ────────────────────────────────────────────────────────────────
 
     def _cmd_steptrace(self, cmd: dict) -> dict:
         addr = cmd["addr"]
@@ -608,7 +608,7 @@ class Daemon:
         return {**self._base_resp(), "ok": True, "trace": trace_data,
                 "output": str(output) if output else None}
 
-    # ── NEW: modules ───────────────────────────────────────────────────────
+    # ── NEW: modules ───────────────────────────────────────────────────────────────────
 
     def _cmd_modules(self, cmd: dict) -> dict:
         modules = self.api.enumerate_modules()
@@ -618,7 +618,7 @@ class Daemon:
                        or filt in m.get("path", "").lower()]
         return {**self._base_resp(), "ok": True, "modules": modules}
 
-    # ── visibility override ────────────────────────────────────────────────
+    # ── visibility override ───────────────────────────────────────────────────────────
 
     def _cmd_vishook_on(self, cmd: dict) -> dict:
         threshold = cmd["threshold"]
@@ -635,7 +635,7 @@ class Daemon:
         result = self.api.get_vis_stats()
         return {**self._base_resp(), "ok": True, **result}
 
-    # ── DIP counter ────────────────────────────────────────────────────────
+    # ── DIP counter ──────────────────────────────────────────────────────────────────
 
     def _cmd_dipcnt_on(self, cmd: dict) -> dict:
         dev_ptr_addr = cmd["devPtrAddr"]
@@ -655,7 +655,7 @@ class Daemon:
         result = self.api.sample_dip_callers(count)
         return {**self._base_resp(), "ok": True, **result}
 
-    # ── memory write watchpoint ─────────────────────────────────────────────
+    # ── memory write watchpoint ────────────────────────────────────────────────────────
 
     def _cmd_memwatch_start(self, cmd: dict) -> dict:
         addr = cmd["addr"]
@@ -672,7 +672,7 @@ class Daemon:
         result = self.api.get_mem_watch_hits()
         return {**self._base_resp(), **result}
 
-    # ── TCP server ─────────────────────────────────────────────────────────
+    # ── TCP server ─────────────────────────────────────────────────────────────────
 
     def serve(self) -> None:
         srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
