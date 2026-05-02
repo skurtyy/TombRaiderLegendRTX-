@@ -4,7 +4,6 @@ from pathlib import Path
 from PIL import Image
 
 from patches.TombRaiderLegend.run import (
-    count_capture_markers,
     evaluate_release_gate,
     generate_random_movement_legacy,
     release_gate_frame_ready,
@@ -123,6 +122,9 @@ def test_release_gate_fails_when_hash_evidence_is_missing(repo_root: Path, tmp_p
     assert report["hash_stability"]["passed"] is False
     assert report["passed"] is False
 
+
+def count_capture_markers(sequence):
+    return sum(1 for m in sequence.split(" ") if m == "]")
 
 def test_release_gate_randomized_sequence_emits_three_capture_points() -> None:
     assert count_capture_markers(generate_random_movement_legacy()) == 3
