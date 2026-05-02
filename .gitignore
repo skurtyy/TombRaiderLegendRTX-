@@ -115,3 +115,5 @@ gamepilot/sessions/
 chatgpt1.md
 geminibuild1.txt
 trlbigopus.md
+dummy.jsonl
+benchmark.py
