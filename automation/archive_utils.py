@@ -1,16 +1,14 @@
 """Build archive helper — captures all required diagnostic files.
 
-Fixes issue #146: automation was not archiving user.conf alongside the
-build. Remix UI overrides stored in user.conf silently affect rendering
-without appearing in rtx.conf.
+Captures the DLL, logs, rtx.conf, and user.conf alongside optional files
+(console.log, screenshots, extra logs). user.conf is required because Remix
+UI overrides stored there silently affect rendering without appearing in rtx.conf.
 
-All archives must include:
-  - d3d9.dll  (build artifact)
-  - build.log
-  - console.log (stdout/stderr of game session)
-  - screenshots/  (session screenshots)
-  - rtx.conf  (deployed remix config)
-  - user.conf  (Remix UI overrides — often missing, now REQUIRED)
+Required files (warning if missing, but archive continues):
+  - d3d9.dll, build.log, rtx.conf, user.conf
+
+Optional files (copied if present, no warning if absent):
+  - console.log, remix-dxvk.log, bridge.log, screenshots/
 
 Usage:
     from automation.archive_utils import archive_build
@@ -18,7 +16,6 @@ Usage:
 """
 from __future__ import annotations
 
-import os
 import shutil
 import datetime
 from pathlib import Path
@@ -26,7 +23,6 @@ from typing import Optional
 
 
 # Files that must be present in every archive.
-# Missing required files are logged as warnings but do NOT abort the archive.
 REQUIRED_FILES = [
     "d3d9.dll",
     "build.log",
@@ -52,17 +48,8 @@ def archive_build(
     """
     Create a numbered build archive under archive_root.
 
-    Structure:
-        archive_root/
-            build-{NNN}/
-                d3d9.dll
-                build.log
-                console.log
-                rtx.conf
-                user.conf          <- new: always captured
-                screenshots/       <- directory copy
-                remix-dxvk.log     <- optional
-                bridge.log         <- optional
+    Wipes any existing archive for the same build number to prevent stale
+    artifacts from contaminating re-runs.
 
     Returns the Path to the created archive directory.
     """
@@ -74,18 +61,21 @@ def archive_build(
     if dry_run:
         print(f"[archive] DRY RUN — would create {archive_dir}")
     else:
-        archive_dir.mkdir(parents=True, exist_ok=True)
+        if archive_dir.exists():
+            shutil.rmtree(archive_dir)
+        archive_dir.mkdir(parents=True)
 
     missing_required: list[str] = []
 
-    # Copy required files
-    for fname in REQUIRED_FILES + (extra_files or []):
+    # Copy required files — warn if any are absent.
+    for fname in REQUIRED_FILES:
         src = game_dir / fname
         if src.is_file():
             dst = archive_dir / fname
             if not dry_run:
                 shutil.copy2(src, dst)
-            print(f"[archive] copied {fname}")
+            verb = "would copy" if dry_run else "copied"
+            print(f"[archive] {verb} {fname}")
         else:
             missing_required.append(fname)
             print(f"[archive] WARNING: required file missing: {fname}")
@@ -96,26 +86,36 @@ def archive_build(
                     "rendering differences between builds cannot be fully audited."
                 )
 
-    # Copy optional files
+    # Copy extra files supplied by the caller — silently skip if absent.
+    for fname in (extra_files or []):
+        src = game_dir / fname
+        if src.is_file():
+            dst = archive_dir / fname
+            if not dry_run:
+                shutil.copy2(src, dst)
+            verb = "would copy" if dry_run else "copied"
+            print(f"[archive] {verb} extra: {fname}")
+
+    # Copy optional files — silently skip if absent.
     for fname in OPTIONAL_FILES:
         src = game_dir / fname
         if src.is_file():
             dst = archive_dir / fname
             if not dry_run:
                 shutil.copy2(src, dst)
-            print(f"[archive] copied optional: {fname}")
+            verb = "would copy" if dry_run else "copied"
+            print(f"[archive] {verb} optional: {fname}")
 
-    # Copy screenshots directory if present
+    # Copy screenshots directory if present.
     ss_src = game_dir / "screenshots"
     if ss_src.is_dir():
         ss_dst = archive_dir / "screenshots"
         if not dry_run:
-            if ss_dst.exists():
-                shutil.rmtree(ss_dst)
             shutil.copytree(ss_src, ss_dst)
-        print(f"[archive] copied screenshots/")
+        verb = "would copy" if dry_run else "copied"
+        print(f"[archive] {verb} screenshots/")
 
-    # Write archive manifest
+    # Write archive manifest.
     manifest_path = archive_dir / "MANIFEST.txt"
     timestamp = datetime.datetime.utcnow().isoformat()
     manifest_lines = [
