@@ -122,12 +122,10 @@ def _extract_prefix(pattern: bytes, mask: bytes, max_len: int = 8) -> bytes:
 
 
 def _download_file(url: str, dest: str) -> None:
-    with urllib.request.urlopen(url) as resp, open(dest, 'wb') as fout:
-        while True:
-            chunk = resp.read(65536)
-            if not chunk:
-                break
-            fout.write(chunk)
+    with urllib.request.urlopen(url) as resp:
+        data = resp.read()
+    with open(dest, 'wb') as fout:
+        fout.write(data)
 
 
 def _pull_sources(repo: str, dest_dir: str) -> None:
