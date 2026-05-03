@@ -512,8 +512,10 @@ class TestCLI:
         mock_pyghidra = MagicMock()
         mock_flat_api = MagicMock()
         mock_program = MagicMock()
-        mock_pyghidra.open_program.return_value.__enter__ = MagicMock(return_value=mock_flat_api)
-        mock_pyghidra.open_program.return_value.__exit__ = MagicMock(return_value=False)
+        mock_pyghidra.open_program.return_value.__enter__ = MagicMock(
+            return_value=mock_flat_api
+        )
+        mock_pyghidra.open_program.return_value.__exit__ = MagicMock(return_value=False)  # noqa: E501
         mock_flat_api.getCurrentProgram.return_value = mock_program
         monkeypatch.setitem(sys.modules, "pyghidra", mock_pyghidra)
 
