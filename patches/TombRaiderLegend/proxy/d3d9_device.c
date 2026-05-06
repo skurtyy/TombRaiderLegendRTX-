@@ -2226,6 +2226,23 @@ static void TRL_ApplyTransformOverrides(WrappedDevice *self) {
         proj[i] = gameProj[i];
     }
 
+    /* H4 fix: lock View/Proj across frames to absorb sub-pixel camera jitter
+     * TRL updates the raw View/Proj matrices in game memory every frame with
+     * small (~0.001..0.009) deltas even when the player is idle. Without the
+     * lock, Remix sees a different W*V*P composite every frame and re-hashes
+     * geometry under rtx.geometryGenerationHashRuleString, producing per-frame
+     * position jitter (earthquake) and unwelded-looking triangle seams. */
+    if (self->vpLockValid &&
+        !mat4_changed(view, self->vpLockView, H4_VP_LOCK_THRESHOLD) &&
+        !mat4_changed(proj, self->vpLockProj, H4_VP_LOCK_THRESHOLD)) {
+        memcpy(view, self->vpLockView, 64);
+        memcpy(proj, self->vpLockProj, 64);
+    } else {
+        memcpy(self->vpLockView, view, 64);
+        memcpy(self->vpLockProj, proj, 64);
+        self->vpLockValid = 1;
+    }
+
     /* Cache the first valid 3D projection for quad detection.
      * The game overwrites the Proj address for UI/overlay passes, so the
      * quad filter must compare against the original 3D projection, not the
