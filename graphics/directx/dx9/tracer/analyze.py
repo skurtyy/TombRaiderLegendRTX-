@@ -7,12 +7,19 @@ call graph building, and more.
 """
 from __future__ import annotations
 
+
 import argparse
 import csv
 import json
 import math
 import subprocess
 import sys
+
+try:
+    import orjson
+    HAS_ORJSON = True
+except ImportError:
+    HAS_ORJSON = False
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -33,7 +40,7 @@ from .d3d9_methods import (
 )
 
 
-# ── Data loading ────────────────────────────────────────────────────────────
+# ── Data loading ──────────────────────────────────────────────────────────────────────
 
 def load_records(path: str, filt: str | None = None) -> list[dict]:
     records = []
@@ -41,15 +48,20 @@ def load_records(path: str, filt: str | None = None) -> list[dict]:
     if filt:
         field, op, val = _parse_filter(filt)
 
+    _loads = orjson.loads if HAS_ORJSON else json.loads
+    _JSONDecodeError = orjson.JSONDecodeError if HAS_ORJSON else json.JSONDecodeError
+
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
+
             try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
+                rec = _loads(line)
+            except _JSONDecodeError:
                 continue
+
             if field and not _match_filter(rec, field, op, val):
                 continue
             records.append(rec)
@@ -110,7 +122,7 @@ def _match_filter(rec: dict, field: str, op: str, val: Any) -> bool:
     return False
 
 
-# ── Address resolver ────────────────────────────────────────────────────────
+# ── Address resolver ────────────────────────────────────────────────────────────────────
 
 class AddressResolver:
     def __init__(self, binary: str | None):
@@ -144,7 +156,7 @@ class AddressResolver:
             self.resolve(a)
 
 
-# ── Matrix classifier ───────────────────────────────────────────────────────
+# ── Matrix classifier ─────────────────────────────────────────────────────────────────────
 
 def classify_matrix(floats: list[float]) -> str:
     if len(floats) != MATRIX_FLOAT_COUNT:
@@ -208,7 +220,7 @@ def format_matrix_4x4(floats: list[float]) -> str:
     return "\n".join(lines)
 
 
-# ── Render state formatting ─────────────────────────────────────────────────
+# ── Render state formatting ──────────────────────────────────────────────────────────────────
 
 def _fmt_rs(state_id: int, value: int) -> str:
     """Format a render state value with human-readable enum names."""
@@ -228,7 +240,7 @@ def _fmt_rs(state_id: int, value: int) -> str:
     return f"{name} = {value} (0x{value:X})"
 
 
-# ── State tracker ───────────────────────────────────────────────────────────
+# ── State tracker ───────────────────────────────────────────────────────────────────────
 
 class DeviceState:
     def __init__(self):
@@ -341,7 +353,7 @@ def _int(val) -> int:
     return 0
 
 
-# ── Analysis commands ───────────────────────────────────────────────────────
+# ── Analysis commands ────────────────────────────────────────────────────────────────────
 
 def do_summary(records: list[dict]) -> None:
     frames = set()
@@ -959,7 +971,7 @@ def _extract_register_usage(asm_text: str) -> dict[str, list[str]]:
     return result
 
 
-# ── Constant provenance ──────────────────────────────────────────────────────
+# ── Constant provenance ───────────────────────────────────────────────────────────────────────
 
 def _parse_ctab_registers(disasm_text: str) -> dict[str, int]:
     """Parse CTAB register table from D3DX disassembly.
@@ -1823,7 +1835,7 @@ def do_export_csv(records: list[dict], output: str) -> None:
     print(f"Exported {len(records)} records to {output}")
 
 
-# ── Main dispatch ───────────────────────────────────────────────────────────
+# ── Main dispatch ──────────────────────────────────────────────────────────────────────
 
 def run_analysis(args: argparse.Namespace) -> None:
     if not Path(args.file).exists():
