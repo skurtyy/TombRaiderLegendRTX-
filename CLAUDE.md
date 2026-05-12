@@ -5,7 +5,7 @@
 - **Project:** Vibe Reverse Engineering toolkit — D3D9 FFP proxy DLL + RE tools for RTX Remix compatibility
 - **Repo:** github.com/skurtyyskirts/TombRaiderLegendRTX-
 - **Owner:** Jeffrey (skurtyyskirts), Temple TX
-- **Builds completed:** 001–077, 071b (003–015, 034, 043, 048–063 not preserved)
+- **Builds completed:** 001–079, 071b (003–015, 034, 043, 048–063 not preserved)
 
 ## DLL Chain
 ```
@@ -89,6 +89,19 @@ rtx.uiTextures = 0x03016D2FBBF5C65D, 0x2164293A60D148AC
 **NEXT STEP:** Fresh Remix capture near the Peru stage. Extract current mesh hash IDs from the Toolkit capture, update `mod.usda`, re-test.
 
 **PASS criteria:** Both red and green stage lights visible in all 3 clean render screenshots, lights shift as Lara strafes, hashes stable, no crash.
+
+#### Secondary Open Issue: Lara / Skinned Character Hash Drift (build 079, IN PROGRESS)
+
+World geometry asset hashes are stable. Lara Croft (and distant NPCs) show drifting hash-debug colors between frames while world stays constant. Build 079 attempted decl normalization (strip `BLENDWEIGHT`/`BLENDINDICES` from the Remix-facing decl), but the fix only fires on the null-VS path — and `ffp_proxy.log` confirms `Float3Route effective: shader` for Lara because `rtx.useVertexCapture = True`. Fix is built and deployed but does not engage.
+
+**Open questions before next attempt:**
+1. Is the user looking at the *asset* hash debug view or the *generation* hash view? (Generation hash is expected to flicker on skinned meshes by design — see build-073 TECHNICAL_ANALYSIS.md.)
+2. Is Lara FLOAT3 or SHORT4 skinned? The build 079 log will tell us once retested with the deployed DLL (always-on `SKINNED decl=` log entries fire even on the shader route).
+3. If true asset-hash drift, branch the fix:
+   - SHORT4 skinned → extend `S4_ExpandAndDraw` with the same decl swap (already null-VS, so swap is safe).
+   - FLOAT3 skinned → new INI toggle `[FFP] SkinnedFloat3Route=null_vs` to override `useVertexCapture` for skinned-only. Tradeoff: Lara through Remix renders bind-pose.
+
+See [TRL tests/build-079-normalize-skinned-decl-FAIL-shader-route-mismatch/SUMMARY.md](TRL%20tests/build-079-normalize-skinned-decl-FAIL-shader-route-mismatch/SUMMARY.md).
 
 ## 36-Layer Culling Map
 

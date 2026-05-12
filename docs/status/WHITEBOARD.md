@@ -1,11 +1,31 @@
 # TRL RTX Remix — Live Whiteboard
 
-**Updated:** 2026-05-05 · **Builds:** 001–078 (003–015, 034, 043, 048–063 not preserved)
-**Goal:** Stable hashes, full geometry submission, refreshed anchor hashes, and **maximum proxy CPU efficiency for the RTX 5090 path-traced runtime**
+**Updated:** 2026-05-11 · **Builds:** 001–079 (003–015, 034, 043, 048–063 not preserved)
+**Goal:** Stable hashes (including skinned characters), full geometry submission, refreshed anchor hashes, and **maximum proxy CPU efficiency for the RTX 5090 path-traced runtime**
 
 ---
 
-## Active Workstream — Performance (build 078+)
+## Active Workstream — Skinned-Character Hash Stability (build 079+)
+
+World geometry is hash-stable. **Lara and other skinned characters drift** in the hash-debug view between frames. Build 079 implemented decl normalization (strip `BLENDWEIGHT`/`BLENDINDICES` from the Remix-facing vertex declaration) but the fix is wired only into the null-VS draw path — and `ffp_proxy.log` confirms `Float3Route effective: shader` for FLOAT3 draws when `rtx.useVertexCapture = True`. The decl swap doesn't engage for Lara on her current route.
+
+**Status:** FAIL — Lara hash colors still drift. World remains stable. Distant NPC silhouettes also drift (issue is general to skinned characters, not Lara-specific). Fix is built, deployed, and harmless; the INI toggle `[FFP] NormalizeSkinnedDecl=1` lets us A/B once routing is corrected.
+
+**Three open questions before pivoting code:**
+
+1. Is the user's debug view the *asset* hash or the *generation* hash? Generation hash includes positions and is expected to flicker on skinned meshes by Remix design (see build-073 TECHNICAL_ANALYSIS.md).
+2. Is Lara FLOAT3 or SHORT4 skinned? Latched-scene draw mix in the old log: 579 SHORT4 vs 21 FLOAT3 — most renderables are SHORT4. The always-on `SKINNED decl=` log entries added in build 079 will resolve this on the next test.
+3. If true asset-hash drift, branch the fix:
+   - **SHORT4 skinned →** extend `S4_ExpandAndDraw` (already null-VS) with the same decl swap. Safe.
+   - **FLOAT3 skinned →** new INI toggle to force skinned-only FLOAT3 onto `FLOAT3_ROUTE_NULL_VS` regardless of `useVertexCapture`. Tradeoff: Lara through Remix renders bind-pose (no animation), since VS is null'd.
+
+**Workspace deployment rule (NEW, build 079):** `proxy/d3d9.dll` and `proxy/proxy.ini` must be auto-deployed after every build to `Vibe-Reverse-Engineering-Claude/Tomb Raider Legend/` (sibling of this repo). The `Tomb Raider Legend/` folder *inside* the repo is a deployment stub — wrong target. Saved to project memory.
+
+Build snapshot: [`TRL tests/build-079-normalize-skinned-decl-FAIL-shader-route-mismatch/`](../../TRL%20tests/build-079-normalize-skinned-decl-FAIL-shader-route-mismatch/).
+
+---
+
+## Previous Workstream — Performance (build 078)
 
 After build 077 stabilized cold launch, the focus shifted to proxy CPU efficiency. The proxy was doing real per-draw work that paid no value once hashes stabilized and engine culling was fully disabled. Build 078 is the first perf build:
 
@@ -27,7 +47,8 @@ Snapshot + analysis: [`TRL tests/build-078-perf-build/`](../../TRL%20tests/build
 | FFP proxy DLL builds & chains | DONE | MSVC x86, chains to Remix d3d9 |
 | Transform pipeline (View/Proj/World) | DONE | View/Proj from game memory, World via WVP decomposition |
 | Asset hash stability (static camera) | DONE | `positions,indices,texcoords,geometrydescriptor` rule, session-reproducible |
-| Asset hash stability (camera pan) | DONE | Lara model rock-solid; world geometry stable during the retained hash-screening sweep |
+| Asset hash stability (camera pan, world) | DONE | World geometry stable during the retained hash-screening sweep |
+| Asset hash stability (skinned characters) | **FAILING (build 079)** | Lara + distant NPCs drift in hash-debug view. Decl normalization fix built but doesn't engage on the shader route. See [build-079](../../TRL%20tests/build-079-normalize-skinned-decl-FAIL-shader-route-mismatch/) |
 | Hash stability screening workflow | DONE | Two-phase (hash debug + clean render) via `run.py test-hash` |
 | Input delivery to DirectInput game | DONE | Scancode flag fix (build 018) |
 | Backface culling disabled | DONE | D3DCULL_NONE + cull globals stamped |

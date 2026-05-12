@@ -6,6 +6,44 @@ Full build history: [`docs/status/WHITEBOARD.md`](docs/status/WHITEBOARD.md)
 
 ---
 
+## [2026-05-11 19:38] BUILD-079 — Normalize skinned decl (FAIL: shader-route mismatch)
+
+### Objective
+Stabilize Lara Croft's asset hash. World geometry hashes are stable, but Lara's mesh-hash colors drift between frames in the hash-debug view (and Toolkit hash IDs reportedly change frame-to-frame). Goal: anchor lights / material replacements to Lara reliably.
+
+### What Changed
+- New helper `BuildSkinnedNormalizedDecl()` in `proxy/d3d9_device.c` — clones a skinned vertex declaration with `BLENDWEIGHT` + `BLENDINDICES` removed (preserves offsets/types for everything else). Mirrors the existing `BuildStrippedDeclIfNeeded` pattern.
+- `WD_SetVertexDeclaration`: when `curDeclIsSkinned`, builds the normalized clone and stashes it in `self->curNormalizedSkinnedDecl`. First 8 unique skinned decls logged to `ffp_proxy.log` always-on (not gated by `DIAG_ENABLED`).
+- `WD_DrawIndexedPrimitive` null-VS path: swaps to normalized decl around the FFP draw, restores `lastDecl` after.
+- New `WrappedDevice` fields: `skinnedNormDecl{Orig,Fixed}[64]`, `curNormalizedSkinnedDecl`, `normalizeSkinnedDecl` (INI toggle, default 1), `skinnedDeclsLogged`.
+- Cleanup hooks in `Reset` and `~WrappedDevice` release the normalized-decl cache.
+- `proxy.ini` gained `[FFP] NormalizeSkinnedDecl=1` for A/B testing.
+- DLL grew 48,640 → 50,176 bytes.
+
+### Test Result
+**FAIL — Lara still drifts.** World remains stable. Distant NPC silhouettes also drift (consistent with "all skinned characters affected, not just Lara").
+
+Two compounding issues:
+
+1. **Wrong deployment target** — initially deployed to `TombRaiderLegendRTX-/Tomb Raider Legend/` (a stub inside the repo containing only `d3d9.dll`/`rtx.conf`/`rtx-remix/`, no `trl.exe`). User's actual game install is one level up at `Vibe-Reverse-Engineering-Claude/Tomb Raider Legend/` (with `trl.exe`, `NvRemixLauncher32.exe`, the `bigfile.NNN` archives, and the `ffp_proxy.log` from the latest run). The first test ran the old build-078 DLL. **Workspace deployment rule saved to project memory** at `memory/feedback_proxy_deployment.md`.
+2. **Route mismatch** — `ffp_proxy.log` confirms `Float3Route effective: shader`. With `rtx.useVertexCapture = True` in `rtx.conf` and default `Float3RoutingMode=auto`, FLOAT3 draws like Lara take the **shader route** (lines 3644-3650 in `d3d9_device.c`), not the null-VS path where my decl swap is wired (lines 3651-3666). The fix is correctly built and deployed (verified after the workspace-rule learning), but it does not engage for Lara.
+
+### Open Hypotheses
+
+1. **(Strongest)** Skinned draws go through `useVertexCapture` shader path → Remix captures VS-output positions → asset-hash drift is a property of how Remix hashes VS-captured skinned geometry. Fix must engage on the shader route or force Lara onto null-VS.
+2. The "debug geometry view" the user is toggling may be the *generation* hash visualization (positions-based, expected to flicker for skinned per build-073 TECHNICAL_ANALYSIS.md), not the *asset* hash. Confirm before pivoting code.
+3. Lara may be SHORT4 skinned, not FLOAT3 skinned. Latched-scene draw mix in the old log: 579 SHORT4 vs 21 FLOAT3 — most of the world is SHORT4. If Lara is SHORT4, the hook is `TRL_ShouldShaderRouteAnimatedShort4Draw` (line ~1044), not the FLOAT3 branch.
+
+### Next Build Plan
+1. Confirm hypothesis #2 with the user — which hash view are they actually seeing?
+2. If true positive on asset-hash drift: retest with **this build correctly deployed** and read the `SKINNED decl=` log entries to determine Lara's vertex format and decl signature(s).
+3. Branch the fix: either (a) extend the decl swap into the SHORT4 `S4_ExpandAndDraw` path if Lara is SHORT4, or (b) add an INI toggle to force skinned FLOAT3 through `FLOAT3_ROUTE_NULL_VS` regardless of `useVertexCapture` (Lara visual through Remix would become bind-pose — known tradeoff).
+
+### Dead End Candidates (not yet)
+The fix isn't a dead end — it just doesn't fire for Lara on the current route. Leave the code in place; the INI toggle lets us disable for A/B if needed. Re-evaluate after the next test cycle confirms whether decl normalization on the right route fixes it.
+
+---
+
 ## [2026-05-05] BUILD-078 — Perf build: proxy CPU hot-path optimization
 
 ### Objective

@@ -1,0 +1,366 @@
+=== DX9 Shader-to-FFP Proxy ===
+Remix enabled, loading: C:\Users\skurtyy\Documents\GitHub\AlmightyBackups\NightRaven1\Vibe-Reverse-Engineering-Claude\Tomb Raider Legend\d3d9_remix.dll
+Direct3DCreate9 called, SDK version: 0x00000020
+Real IDirect3D9: 0x018FB9D8
+WrappedD3D9 created at 0x01926C10
+CreateDevice called
+  Adapter: 0x00000000
+  DeviceType: 0x00000001
+  BehaviorFlags (original): 0x00000050
+  BehaviorFlags (cleaned): 0x00000040
+  Real device: 0x0194E8C8
+  useVertexCapture (rtx.conf): 1
+WrappedDevice created with shader passthrough + transform override
+  Diag delay (ms): 50000
+  AlbedoStage: 0
+  Float3RoutingMode: auto
+  Short4AnimatedRoutingMode: auto
+  Float3Route effective: shader
+  NormalizeSkinnedDecl: 1
+  SkyIsolation: 1
+  SkyCandidateMinVerts: 12000
+  SkyCandidateMinPrims: 30
+  SkyWarmupScenes: 300
+  Real device: 0x0194E8C8
+  View matrix addr: 0x010FC780
+  Proj matrix addr: 0x01002530
+  Wrapped device: 0x0197E810
+CheckDeviceFormat: rejected FourCC format 0x31545844
+CheckDeviceFormat: rejected FourCC format 0x32545844
+CheckDeviceFormat: rejected FourCC format 0x33545844
+CheckDeviceFormat: rejected FourCC format 0x34545844
+CheckDeviceFormat: rejected FourCC format 0x35545844
+Transition: front-end scene observed scene=3
+ d=12
+ s4=0
+ f3=12
+
+TRL: memory patches deferred until level latch scene=600
+
+TRL: memory patches deferred until level latch scene=720
+
+TRL: memory patches deferred until level latch scene=840
+
+TRL: memory patches deferred until level latch scene=960
+
+TRL: memory patches deferred until level latch scene=1080
+
+TRL: memory patches deferred until level latch scene=1200
+
+TRL: memory patches deferred until level latch scene=1320
+
+Transition: gameplay scene latched scene=1352
+ d=600
+ s4=579
+ f3=21
+
+Transition: replay features remain disabled for TRL stability
+TRL: applying gameplay memory patches at scene=1353
+
+Game version verified: TRL Steam v1.0
+  Patched frustum threshold to -1e30
+  NOPed cull jumps: 11
+/11
+  Patched 0x4071D9: null-check trampoline via cave at 0xEDF9E3
+  Patched ProcessPendingRemovals: skip stale field_48 deref
+  NOPed sector visibility checks: 2
+/2
+  NOPed sector-object camera proximity filter at 0x0046B85A
+  NOPed sector already-rendered skip at 0x0046B7F2
+  NOPed frustum screen-size rejection at 0x0046C242 and 0x0046C25B
+  NOPed SectorPortalVisibility reset writes: 4
+/4 (bounds NOPed, flags clear preserved)
+  Patched cull mode globals to D3DCULL_NONE
+  Patched Light_VisibilityTest to always TRUE (0x60B050)
+  NOPed sector light count gate at 0xEC6337
+  NOPed RenderLights gate at 0x60E3B1
+  NOPed terrain cull gate at 0x0040AE3E
+  Patched MeshSubmit_VisibilityGate to always return 0 (0x454AB0)
+  Stamped post-sector enable flag to 1 (0xF12016)
+  NOPed stream unload gate write at 0x00415C51
+  Cleared post-sector/stream gate at 0x10024E8
+  NOPed post-sector bitmask cull at 0x0040E30F
+  NOPed post-sector distance cull at 0x0040E3B0
+  Stamped post-sector bitmask to 0xFFFFFFFF
+  NOPed Sector_SubmitObject gates: 2
+/2 (0x40C666 + 0x40C68B)
+  NOPed mesh eviction: SectorEviction x2 + ObjectTracker_Evict
+  NOPed _level writers: 2
+/2 (0x46CCB4 + 0x4E6DFA)
+  Patched RenderQueue_FrustumCull -> NoCull (0x40C430 -> 0x40C390)
+  Permanently unlocked data pages for per-scene stamps: 8
+/8
+SkyIso: warmup start scene=1353
+SkyIso: warmup scenes=300
+SkyIso: observed texture=0x1F8F9200
+SkyIso: observed texture=0x1F8FAE00
+SkyIso: observed texture=0x1EC86078
+SkyIso: observed texture=0x1EC86158
+SkyIso: observed texture=0x1EC84E18
+SkyIso: observed texture=0x1EC84B78
+SkyIso: observed texture=0x1EC84D38
+SkyIso: observed texture=0x1EC84EF8
+SkyIso: observed texture=0x1EC84FD8
+SkyIso: observed texture=0x1EC86318
+SkyIso: observed texture=0x1EC864D8
+SkyIso: observed texture=0x1EC86238
+SkyIso: observed texture=0x1F8FAD20
+SkyIso: observed texture=0x1F8F9660
+SkyIso: observed texture=0x1F8FA1C0
+SkyIso: observed texture=0x1F8F9580
+SkyIso: observed texture=0x1F8F9C80
+SkyIso: observed texture=0x1F8F9AC0
+SkyIso: observed texture=0x1F8FA9A0
+SkyIso: observed texture=0x1F8F9E40
+SkyIso: observed texture=0x1F8F9900
+SkyIso: observed texture=0x1F8FA7E0
+SkyIso: observed texture=0x1F8FA000
+SkyIso: observed texture=0x1F8F9820
+SkyIso: observed texture=0x1F8F9D60
+SkyIso: observed texture=0x1F8FA8C0
+SkyIso: observed texture=0x1F8FA460
+SkyIso: observed texture=0x1F8F9F20
+SkyIso: observed texture=0x1F8F9740
+SkyIso: observed texture=0x1F8FB0A0
+SkyIso: observed texture=0x20873AD8
+SkyIso: observed texture=0x1F8FA700
+SkyIso: observed texture=0x1EC85F98
+SkyIso: observed texture=0x1EC84638
+SkyIso: observed texture=0x1EC863F8
+SkyIso: observed texture=0x1F8FA380
+SkyIso: observed texture=0x1F8FA0E0
+SkyIso: observed texture=0x1F8FAA80
+SkyIso: observed texture=0x1F8F94A0
+SkyIso: observed texture=0x1F8F92E0
+SkyIso: observed texture=0x1F8FA540
+SkyIso: observed texture=0x1F8FAEE0
+SkyIso: observed texture=0x1F8FAFC0
+SkyIso: observed texture=0x208741D8
+SkyIso: observed texture=0x1EC85358
+SkyIso: observed texture=0x1EC84718
+SkyIso: observed texture=0x1F8F99E0
+SkyIso: observed texture=0x1EC847F8
+SkyIso: observed texture=0x1EC848D8
+SkyIso: observed texture=0x1EC85518
+SkyIso: observed texture=0x208749B8
+SkyIso: skip animated texture draw
+SkyIso: observed texture=0x20873C98
+SkyIso: skip animated texture draw
+SkyIso: skip animated texture draw
+SkyIso: skip animated texture draw
+SkyIso: observed texture=0x208732F8
+SkyIso: skip animated texture draw
+SkyIso: skip animated texture draw
+SkyIso: observed texture=0x20873D78
+SkyIso: skip animated texture draw
+SkyIso: skip animated texture draw
+SkyIso: observed texture=0x20873218
+SkyIso: skip animated texture draw
+SkyIso: observed texture=0x20B0E200
+SkyIso: skip animated texture draw
+SkyIso: skip animated texture draw
+SkyIso: skip animated texture draw
+SkyIso: skip animated texture draw
+SkyIso: observed texture=0x1EC855F8
+SkyIso: observed texture=0x1F8FA620
+SkyIso: observed texture=0x20B0EF20
+SkyIso: skip animated texture draw
+SkyIso: observed texture=0x1F8FAC40
+SkyIso: observed texture=0x1EC84C58
+SkyIso: observed texture=0x1F8F93C0
+SkyIso: observed texture=0x1F8FA2A0
+SkyIso: observed texture=0x20873F38
+SkyIso: observed texture=0x20873058
+SkyIso: observed texture=0x1F8F9BA0
+SkyIso: observed texture=0x208739F8
+SkyIso: skip animated texture draw
+SkyIso: skip animated texture draw
+SkyIso: observed texture=0x1F8FAB60
+SkyIso: observed texture=0x20874A98
+SkyIso: observed texture=0x1DD3D9A8
+SkyIso: observed texture=0x1D6F1EE0
+SkyIso: observed texture=0x20B0E4A0
+SkyIso: observed texture=0x0199F060
+SkyIso: observed texture=0x1D6F2420
+SkyIso: observed texture=0x1DD3C2E8
+SkyIso: observed texture=0x20B0FB60
+SkyIso: observed texture=0x20B0E3C0
+SkyIso: observed texture=0x1DD3C748
+SkyIso: observed texture=0x1DD17460
+SkyIso: observed texture=0x1DD17700
+SkyIso: observed texture=0x1F906290
+SkyIso: observed texture=0x21725BD8
+SkyIso: observed texture=0x1F905650
+SkyIso: observed texture=0x1F9068B0
+SkyIso: observed texture=0x1F906990
+SkyIso: observed texture=0x1F906610
+SkyIso: observed texture=0x1F9061B0
+SkyIso: observed texture=0x1F906DF0
+SkyIso: observed texture=0x1F906FB0
+SkyIso: observed texture=0x20803948
+SkyIso: observed texture=0x20802B48
+SkyIso: observed texture=0x20802A68
+SkyIso: observed texture=0x20803CC8
+SkyIso: observed texture=0x20803DA8
+SkyIso: observed texture=0x20803E88
+SkyIso: observed texture=0x20803F68
+SkyIso: observed texture=0x1FA96828
+SkyIso: observed texture=0x1FA96D68
+SkyIso: observed texture=0x1FA96588
+SkyIso: observed texture=0x1FA97628
+SkyIso: observed texture=0x1FA962E8
+SkyIso: observed texture=0x1FA97B68
+SkyIso: observed texture=0x1FA96208
+SkyIso: observed texture=0x1FA96C88
+SkyIso: observed texture=0x1FA97C48
+SkyIso: observed texture=0x1FA97EE8
+SkyIso: observed texture=0x1FA97E08
+SkyIso: observed texture=0x20D578B8
+SkyIso: observed texture=0x20D56FF8
+SkyIso: observed texture=0x20D57998
+SkyIso: observed texture=0x20D56038
+SkyIso: observed texture=0x20D571B8
+SkyIso: observed texture=0x20D57458
+SkyIso: observed texture=0x20D576F8
+SkyIso: observed texture=0x20D56C78
+SkyIso: observed texture=0x20D57618
+SkyIso: observed texture=0x20D57A78
+SkyIso: observed texture=0x20D57B58
+SkyIso: observed texture=0x20D56F18
+SkyIso: observed texture=0x20D56118
+SkyIso: observed texture=0x20803248
+SkyIso: observed texture=0x20803788
+SkyIso: observed texture=0x20803408
+SkyIso: observed texture=0x20803868
+SkyIso: observed texture=0x20803A28
+SkyIso: observed texture=0x1FA97468
+SkyIso: observed texture=0x1FA978C8
+SkyIso: observed texture=0x1FA97D28
+SkyIso: observed texture=0x20D56818
+SkyIso: observed texture=0x20D56D58
+SkyIso: observed texture=0x1DD179A0
+SkyIso: observed texture=0x1DD16F20
+SkyIso: observed texture=0x1DD177E0
+SkyIso: observed texture=0x1DD17000
+SkyIso: observed texture=0x1F905730
+SkyIso: observed texture=0x1F906530
+SkyIso: observed texture=0x1F9067D0
+SkyIso: observed texture=0x1F9059D0
+SkyIso: observed texture=0x1F905F10
+SkyIso: observed texture=0x1F906ED0
+SkyIso: observed texture=0x1F907090
+SkyIso: observed texture=0x20802608
+SkyIso: observed texture=0x20803BE8
+SkyIso: observed texture=0x208026E8
+SkyIso: observed texture=0x208034E8
+SkyIso: observed texture=0x208021A8
+SkyIso: observed texture=0x208027C8
+SkyIso: observed texture=0x1FA964A8
+SkyIso: observed texture=0x1FA970E8
+SkyIso: observed texture=0x1FA969E8
+SkyIso: observed texture=0x1FA96BA8
+SkyIso: observed texture=0x1FA96748
+SkyIso: observed texture=0x1FA96908
+SkyIso: observed texture=0x1FA979A8
+SkyIso: observed texture=0x1FA971C8
+SkyIso: observed texture=0x1FA972A8
+SkyIso: observed texture=0x20D57378
+SkyIso: observed texture=0x20D570D8
+SkyIso: observed texture=0x20D57538
+SkyIso: observed texture=0x20D56B98
+SkyIso: observed texture=0x1DD17380
+SkyIso: observed texture=0x1F9058F0
+SkyIso: observed texture=0x1F9051F0
+SkyIso: observed texture=0x1F905D50
+SkyIso: observed texture=0x1F9060D0
+SkyIso: observed texture=0x1F906450
+SkyIso: observed texture=0x1F906D10
+SkyIso: observed texture=0x20802C28
+SkyIso: observed texture=0x20802D08
+SkyIso: observed texture=0x20802DE8
+SkyIso: observed texture=0x20802288
+SkyIso: observed texture=0x20802FA8
+SkyIso: observed texture=0x20803088
+SkyIso: observed texture=0x20803328
+SkyIso: observed texture=0x208035C8
+SkyIso: observed texture=0x1FA97548
+SkyIso: observed texture=0x1FA96668
+SkyIso: observed texture=0x1FA96048
+SkyIso: observed texture=0x1FA977E8
+SkyIso: observed texture=0x1FA96128
+SkyIso: observed texture=0x1FA97A88
+SkyIso: observed texture=0x20D56738
+SkyIso: observed texture=0x1DD17E00
+SkyIso: observed texture=0x1F905570
+SkyIso: observed texture=0x1F905490
+SkyIso: observed texture=0x1F9066F0
+SkyIso: observed texture=0x1FA96F28
+SkyIso: observed texture=0x20D57298
+SkyIso: observed texture=0x1F9053B0
+SkyIso: observed texture=0x1F905E30
+SkyIso: observed texture=0x1F905AB0
+SkyIso: observed texture=0x1F905C70
+SkyIso: observed texture=0x20802368
+SkyIso: observed texture=0x20802528
+SkyIso: observed texture=0x208020C8
+SkyIso: observed texture=0x208036A8
+SkyIso: observed texture=0x20D577D8
+SkyIso: observed texture=0x1FA97388
+SkyIso: observed texture=0x1F905FF0
+SkyIso: observed texture=0x1F906370
+SkyIso: observed texture=0x1F905810
+SkyIso: observed texture=0x1F9052D0
+SkyIso: observed texture=0x20803B08
+SkyIso: observed texture=0x20802448
+SkyIso: observed texture=0x20802988
+SkyIso: observed texture=0x20803168
+SkyIso: observed texture=0x1FA97708
+SkyIso: observed texture=0x1FA96E48
+SkyIso: observed texture=0x1F906A70
+SkyIso: observed texture=0x208028A8
+SkyIso: observed texture=0x20802EC8
+SkyIso: observed texture=0x1FA96AC8
+SkyIso: observed texture=0x20B0EC80
+SkyIso: observed texture=0x20B0FA80
+SkyIso: observed texture=0x20B0EBA0
+SkyIso: observed texture=0x20B0F620
+SkyIso: observed texture=0x20B0E660
+SkyIso: observed texture=0x1F897448
+SkyIso: observed texture=0x1F895CA8
+SkyIso: observed texture=0x1F896728
+SkyIso: observed texture=0x1F896E28
+SkyIso: observed texture=0x1F8962C8
+SkyIso: observed texture=0x1F897528
+SkyIso: observed texture=0x1F896D48
+SkyIso: observed texture=0x1F8977C8
+SkyIso: observed texture=0x1F896028
+SkyIso: observed texture=0x1F8971A8
+SkyIso: observed texture=0x1F897608
+SkyIso: observed texture=0x1F896B88
+SkyIso: observed texture=0x1F896648
+SkyIso: observed texture=0x1F897DE8
+SkyIso: observed texture=0x1F895308
+SkyIso: observed texture=0x21725778
+SkyIso: observed texture=0x1DD3CAC8
+SkyIso: observed texture=0x1F895A08
+SkyIso: observed texture=0x1F8969C8
+SkyIso: observed texture=0x1F895768
+SkyIso: observed texture=0x1F897988
+SkyIso: observed texture=0x21724278
+SkyIso: observed texture=0x217255B8
+SkyIso: observed texture=0x1F894968
+SkyIso: observed texture=0x21725158
+SkyIso: observed texture=0x1F894508
+SkyIso: observed texture=0x1F894A48
+SkyIso: observed texture=0x1F894B28
+SkyIso: observed texture=0x1F894DC8
+SkyIso: observed texture=0x1F894EA8
+SkyIso: observed texture=0x1DD17620
+SkyIso: observed texture=0x20873598
+SkyIso: observed texture=0x1F8963A8
+SkyIso: observed texture=0x1F8946C8
+SkyIso: observed texture=0x1F894CE8
+SkyIso: observed texture=0x1D6F1D20
+SkyIso: observed texture=0x1F905B90
+SkyIso: observed texture=0x1FA97008
+SkyIso: observed texture=0x1FA963C8

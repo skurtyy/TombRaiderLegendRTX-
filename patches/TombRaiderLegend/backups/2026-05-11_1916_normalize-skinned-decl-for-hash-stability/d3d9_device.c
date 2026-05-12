@@ -734,19 +734,6 @@ typedef struct WrappedDevice {
     void *strippedDeclFixed[64];  /* modified declaration with NORMAL removed */
     int strippedDeclCount;
 
-    /* Skinned-decl normalization cache: maps an original skinned decl (which contains
-     * BLENDWEIGHT+BLENDINDICES) → a clone with those two usages removed. The proxy
-     * swaps to the normalized decl ONLY for the Remix-facing null-VS FFP draw call
-     * (mirroring the existing VS-null-and-restore pattern). The game's own shader
-     * path keeps the original decl. Goal: stabilize the geometrydescriptor hash
-     * across LOD swaps and weight-type variance so Lara's asset hash stops drifting. */
-    void *skinnedNormDeclOrig[64];
-    void *skinnedNormDeclFixed[64];
-    int   skinnedNormDeclCount;
-    int   normalizeSkinnedDecl;         /* INI toggle ([FFP] NormalizeSkinnedDecl), default 1 */
-    void *curNormalizedSkinnedDecl;     /* normalized clone for the currently bound decl (NULL if N/A) */
-    int   skinnedDeclsLogged;           /* count of unique skinned decls already dumped to ffp_proxy.log */
-
     /* Last computed transforms (saved by TRL_ApplyTransformOverrides for reuse) */
     float savedWorld[16];
     float savedView[16];
@@ -3069,10 +3056,6 @@ static unsigned long __stdcall WD_Release(WrappedDevice *self) {
                 if (self->strippedDeclFixed[sd])
                     ((FN_Rel)(*(void***)self->strippedDeclFixed[sd])[2])(self->strippedDeclFixed[sd]);
             }
-            for (sd = 0; sd < self->skinnedNormDeclCount; sd++) {
-                if (self->skinnedNormDeclFixed[sd])
-                    ((FN_Rel)(*(void***)self->skinnedNormDeclFixed[sd])[2])(self->skinnedNormDeclFixed[sd]);
-            }
         }
 #if ENABLE_SKINNING
         Skin_ReleaseDevice(self);
@@ -3248,12 +3231,6 @@ static int __stdcall WD_Reset(WrappedDevice *self, void *pPresentParams) {
                 ((FN_Rel)(*(void***)self->strippedDeclFixed[sd])[2])(self->strippedDeclFixed[sd]);
         }
         self->strippedDeclCount = 0;
-        for (sd = 0; sd < self->skinnedNormDeclCount; sd++) {
-            if (self->skinnedNormDeclFixed[sd])
-                ((FN_Rel)(*(void***)self->skinnedNormDeclFixed[sd])[2])(self->skinnedNormDeclFixed[sd]);
-        }
-        self->skinnedNormDeclCount = 0;
-        self->curNormalizedSkinnedDecl = NULL;
     }
 #if ENABLE_SKINNING && EXPAND_SKIN_VERTICES
     SkinVB_ReleaseCache(self);
@@ -3674,21 +3651,12 @@ static int __stdcall WD_DrawIndexedPrimitive(WrappedDevice *self,
                 } else {
                     /* Legacy null-VS fallback for FLOAT3 when vertex capture is off (or forced). */
                     typedef int (__stdcall *FN_SetVS)(void*, void*);
-                    typedef int (__stdcall *FN_SetDecl)(void*, void*);
                     void **vt = RealVtbl(self);
-                    /* For skinned draws, swap to a normalized decl (no BLENDWEIGHT/BLENDINDICES)
-                     * around the FFP-facing call so Remix's geometrydescriptor hash is stable
-                     * across LOD swaps and weight-type variance. Game shader uses original decl. */
-                    int swapNormDecl = (self->curDeclIsSkinned && self->curNormalizedSkinnedDecl != NULL);
-                    if (swapNormDecl)
-                        ((FN_SetDecl)vt[SLOT_SetVertexDeclaration])(self->pReal, self->curNormalizedSkinnedDecl);
                     ((FN_SetVS)vt[SLOT_SetVertexShader])(self->pReal, NULL);
                     TRL_ApplyFFPDrawState(self, 1);
                     hr = ((FN)vt[SLOT_DrawIndexedPrimitive])(self->pReal, pt, bvi, mi, nv, si, pc);
                     if (self->lastVS)
                         ((FN_SetVS)vt[SLOT_SetVertexShader])(self->pReal, self->lastVS);
-                    if (swapNormDecl)
-                        ((FN_SetDecl)vt[SLOT_SetVertexDeclaration])(self->pReal, self->lastDecl);
                 }
                 if (self->curDeclPosType == D3DDECLTYPE_SHORT4)
                     self->drawsS4++;
@@ -4270,59 +4238,6 @@ static void *GetStrippedDecl(WrappedDevice *self, void *pOrigDecl,
     return pOrigDecl; /* fallback: use original */
 }
 
-/* Build a normalized clone of a skinned vertex declaration: same element offsets and
- * types as the original, but with BLENDWEIGHT and BLENDINDICES removed. The clone is
- * what the proxy hands to Remix on the FFP-facing null-VS draw call so that Remix's
- * `geometrydescriptor` hash component does not vary with bone-count / weight-type
- * changes across LODs. The game's own shader pipeline continues to use the original
- * decl (swap is wrapped tightly around the FFP draw, then restored). */
-static void *BuildSkinnedNormalizedDecl(WrappedDevice *self, void *pOrigDecl,
-    unsigned char *elemBuf, unsigned int numElems)
-{
-    typedef int (__stdcall *FN_CreateDecl)(void*, void*, void**);
-    int i;
-    unsigned char filtered[8 * 32];
-    unsigned int outIdx = 0;
-    void *newDecl = NULL;
-
-    if (!pOrigDecl) return NULL;
-
-    /* Cache lookup */
-    for (i = 0; i < self->skinnedNormDeclCount; i++) {
-        if (self->skinnedNormDeclOrig[i] == pOrigDecl)
-            return self->skinnedNormDeclFixed[i];
-    }
-
-    for (i = 0; (unsigned int)i < numElems; i++) {
-        unsigned char *el = &elemBuf[i * 8];
-        unsigned short stream = *(unsigned short*)&el[0];
-        unsigned char  usage  = el[6];
-
-        if (stream == 0xFF || stream == 0xFFFF) {
-            memcpy(&filtered[outIdx * 8], el, 8);
-            outIdx++;
-            break;
-        }
-        if (usage == D3DDECLUSAGE_BLENDWEIGHT || usage == D3DDECLUSAGE_BLENDINDICES)
-            continue;
-        memcpy(&filtered[outIdx * 8], el, 8);
-        outIdx++;
-    }
-
-    if (((FN_CreateDecl)RealVtbl(self)[SLOT_CreateVertexDeclaration])(
-            self->pReal, filtered, &newDecl) == 0 && newDecl) {
-        if (self->skinnedNormDeclCount < 64) {
-            self->skinnedNormDeclOrig[self->skinnedNormDeclCount] = pOrigDecl;
-            self->skinnedNormDeclFixed[self->skinnedNormDeclCount] = newDecl;
-            self->skinnedNormDeclCount++;
-        }
-        log_hex("  Created normalized skinned decl (BLENDWEIGHT/BLENDINDICES removed): ", (unsigned int)newDecl);
-        return newDecl;
-    }
-
-    return NULL;
-}
-
 /* 87: SetVertexDeclaration — Parse vertex elements, detect skinning */
 static int __stdcall WD_SetVertexDeclaration(WrappedDevice *self, void *pDecl) {
     typedef int (__stdcall *FN)(void*, void*);
@@ -4341,7 +4256,6 @@ static int __stdcall WD_SetVertexDeclaration(WrappedDevice *self, void *pDecl) {
 
     self->lastDecl = pDecl;
     self->curDeclIsSkinned = 0;
-    self->curNormalizedSkinnedDecl = NULL;
     self->curDeclHasTexcoord = 0;
     self->curDeclHasNormal = 0;
     self->curDeclHasColor = 0;
@@ -4449,38 +4363,6 @@ static int __stdcall WD_SetVertexDeclaration(WrappedDevice *self, void *pDecl) {
                         default:                  self->curDeclNumWeights = 3; break;
                     }
 #endif
-                    if (self->normalizeSkinnedDecl) {
-                        int firstTimeForDecl = 1;
-                        int sd;
-                        for (sd = 0; sd < self->skinnedNormDeclCount; sd++) {
-                            if (self->skinnedNormDeclOrig[sd] == pDecl) { firstTimeForDecl = 0; break; }
-                        }
-                        self->curNormalizedSkinnedDecl =
-                            BuildSkinnedNormalizedDecl(self, pDecl, elemBuf, numElems);
-
-                        /* Always-on first-encounter log (not gated by DIAG_ENABLED): captures
-                         * the skinned decl signature so we can correlate hash-stability tests
-                         * with what Lara/character meshes actually look like at runtime. */
-                        if (firstTimeForDecl && self->skinnedDeclsLogged < 8) {
-                            unsigned int el2;
-                            self->skinnedDeclsLogged++;
-                            log_hex("  SKINNED decl=", (unsigned int)pDecl);
-                            log_int("    numElems=", numElems);
-                            log_hex("    normalized=", (unsigned int)self->curNormalizedSkinnedDecl);
-                            for (el2 = 0; el2 < numElems; el2++) {
-                                unsigned char *el = &elemBuf[el2 * 8];
-                                unsigned short eStream = *(unsigned short*)&el[0];
-                                unsigned short eOff    = *(unsigned short*)&el[2];
-                                unsigned char  eType   = el[4];
-                                unsigned char  eUsage  = el[6];
-                                if (eStream == 0xFF || eStream == 0xFFFF) break;
-                                log_int("    s", eStream);
-                                log_int("    off=", eOff);
-                                log_int("    type=", eType);
-                                log_int("    usage=", eUsage);
-                            }
-                        }
-                    }
                 }
 
                 /* Normal stripping DISABLED for hash stability testing.
@@ -5364,10 +5246,6 @@ WrappedDevice* WrappedDevice_Create(void *pRealDevice) {
     { int t; for (t = 0; t < 8; t++) w->curTexture[t] = NULL; }
     w->loggedDeclCount = 0;
     w->strippedDeclCount = 0;
-    w->skinnedNormDeclCount = 0;
-    w->normalizeSkinnedDecl = 1;
-    w->curNormalizedSkinnedDecl = NULL;
-    w->skinnedDeclsLogged = 0;
     w->pinnedDrawCount = 0;
     w->pinnedCaptureComplete = 0;
     w->useVertexCaptureEffective = 1;
@@ -5416,8 +5294,6 @@ WrappedDevice* WrappedDevice_Create(void *pRealDevice) {
         GetPrivateProfileStringA("FFP", "Short4AnimatedRoutingMode", "auto", short4AnimatedMode, 32, iniBuf);
         w->short4AnimatedRoutingMode = parse_float3_routing_mode(short4AnimatedMode);
 
-        w->normalizeSkinnedDecl = GetPrivateProfileIntA("FFP", "NormalizeSkinnedDecl", 1, iniBuf) ? 1 : 0;
-
         skyEnable = GetPrivateProfileIntA("Sky", "EnableIsolation", 1, iniBuf);
         skyMinVerts = GetPrivateProfileIntA("Sky", "CandidateMinVerts", 8000, iniBuf);
         skyMinPrims = GetPrivateProfileIntA("Sky", "CandidateMinPrims", 18, iniBuf);
@@ -5447,7 +5323,6 @@ WrappedDevice* WrappedDevice_Create(void *pRealDevice) {
         log_str("  Float3Route effective: shader\r\n");
     else
         log_str("  Float3Route effective: null_vs\r\n");
-    log_int("  NormalizeSkinnedDecl: ", w->normalizeSkinnedDecl);
     log_int("  SkyIsolation: ", w->skyIsolationEnable);
     log_int("  SkyCandidateMinVerts: ", (int)w->skyCandidateMinVerts);
     log_int("  SkyCandidateMinPrims: ", (int)w->skyCandidateMinPrims);
