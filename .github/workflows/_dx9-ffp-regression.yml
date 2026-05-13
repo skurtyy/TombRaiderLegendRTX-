@@ -16,6 +16,11 @@ on:
         required: false
         type: string
         default: renderer.cpp
+      auto_seed_baseline:
+        description: If true and no baseline file exists, write one and exit success. Default false (fail with a clear message instead).
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   regression-check:
@@ -30,23 +35,24 @@ jobs:
           BASELINE: ${{ inputs.baseline_path }}
           INI: ${{ inputs.ini_path }}
           RENDERER: ${{ inputs.renderer_path }}
+          AUTO_SEED: ${{ inputs.auto_seed_baseline }}
         run: |
-          python - <<'PYEOF'
+          python <<'PYEOF'
           import hashlib, json, os, re, sys
           from pathlib import Path
           baseline_p = Path(os.environ['BASELINE'])
           ini_p = Path(os.environ['INI'])
           rend_p = Path(os.environ['RENDERER'])
+          auto_seed = os.environ.get('AUTO_SEED','false').lower() == 'true'
 
           if not ini_p.exists() and not rend_p.exists():
-              print('Neither INI nor renderer found; nothing to check')
+              print(f'::warning::Neither INI ({ini_p}) nor renderer ({rend_p}) found; check the caller paths')
               raise SystemExit(0)
 
           current = {}
           if ini_p.exists():
               ini_text = ini_p.read_text(errors='replace')
               current['ini_sha256'] = hashlib.sha256(ini_text.encode()).hexdigest()
-              # Capture top-level [section] and key=value pairs for richer diff
               pairs = {}
               section = ''
               for line in ini_text.splitlines():
@@ -61,16 +67,22 @@ jobs:
               current['ini_keys'] = pairs
           if rend_p.exists():
               rend_text = rend_p.read_text(errors='replace')
-              # Extract VS constant references like c0..c255
               vs_consts = sorted(set(re.findall(r'\bc(\d{1,3})\b', rend_text)))
               current['vs_constants'] = vs_consts
               current['renderer_sha256'] = hashlib.sha256(rend_text.encode()).hexdigest()
 
           if not baseline_p.exists():
-              baseline_p.parent.mkdir(parents=True, exist_ok=True)
-              baseline_p.write_text(json.dumps(current, indent=2, sort_keys=True))
-              print(f'Baseline did not exist; wrote initial snapshot to {baseline_p}')
-              raise SystemExit(0)
+              if auto_seed:
+                  baseline_p.parent.mkdir(parents=True, exist_ok=True)
+                  baseline_p.write_text(json.dumps(current, indent=2, sort_keys=True))
+                  print(f'::warning::Baseline seeded at {baseline_p}; commit it to enable real regression detection')
+                  raise SystemExit(0)
+              else:
+                  print(f'::error::Baseline file {baseline_p} not found.')
+                  print('Run this workflow once with auto_seed_baseline=true to produce the file, then commit it.')
+                  print('Snapshot that would be written:')
+                  print(json.dumps(current, indent=2, sort_keys=True))
+                  sys.exit(1)
 
           baseline = json.loads(baseline_p.read_text())
           diffs = []
@@ -91,10 +103,8 @@ jobs:
           if diffs:
               print('DX9 FFP regression flags:')
               for d in diffs: print(' -', d)
-              # Surface as PR check failure so reviewer is alerted, but allow override
               if os.environ.get('GITHUB_EVENT_NAME') == 'pull_request':
                   print('::warning::DX9-FFP config drift detected; reviewer must confirm')
-              # Hard-fail only if a sentinel file says so
               if Path('.github/dx9-ffp-strict').exists():
                   sys.exit(1)
           else:

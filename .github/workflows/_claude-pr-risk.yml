@@ -7,8 +7,8 @@ on:
         required: false
         type: string
         default: claude-haiku-4-5-20251001
-      auto_request_review_threshold:
-        description: Add `claude-review` label if assessed risk is at this level or higher (low|med|high)
+      review_recommendation_threshold:
+        description: Post a comment recommending `claude-review` if assessed risk is at this level or higher (low|med|high)
         required: false
         type: string
         default: high
@@ -33,11 +33,11 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
           CLAUDE_MODEL: ${{ inputs.claude_model }}
-          THRESHOLD: ${{ inputs.auto_request_review_threshold }}
+          THRESHOLD: ${{ inputs.review_recommendation_threshold }}
         run: |
           set -e
           gh api -H 'Accept: application/vnd.github.v3.diff' "repos/$REPO/pulls/$PR_NUMBER" > /tmp/pr.diff
-          python - <<'PYEOF'
+          python <<'PYEOF'
           import json, os, urllib.request, subprocess
           from pathlib import Path
           diff = Path('/tmp/pr.diff').read_text(encoding='utf-8', errors='replace')[:80000]
@@ -63,9 +63,13 @@ jobs:
           subprocess.run(['gh','pr','edit',num,'--repo',repo,'--add-label',f'risk-{risk}'], check=False)
           order = {'low':0,'med':1,'high':2}
           if order[risk] >= order.get(thr, 2):
-              subprocess.run(['gh','pr','edit',num,'--repo',repo,'--add-label','claude-review'], check=False)
-              subprocess.run(['gh','pr','comment',num,'--repo',repo,'--body',
-                              f'Risk auto-assessed as **{risk.upper()}**. Requesting Claude code review.'], check=False)
+              # Do NOT auto-add the `claude-review` label here: GitHub's recursion guard
+              # prevents `pull_request: labeled` workflows from firing when GITHUB_TOKEN
+              # adds the label. Instead, leave a comment recommending the label so a
+              # human (or BOT_TOKEN-backed app) can opt in.
+              msg = (f'Risk auto-assessed as **{risk.upper()}**. '
+                     f'Add the `claude-review` label to request a Claude code review.')
+              subprocess.run(['gh','pr','comment',num,'--repo',repo,'--body',msg], check=False)
           else:
               print(f'Risk: {risk}')
           PYEOF

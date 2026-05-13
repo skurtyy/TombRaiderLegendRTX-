@@ -44,7 +44,7 @@ jobs:
           SNAPSHOT_PATH: ${{ inputs.snapshot_path }}
           LINEAR_CONFIG_PATH: ${{ inputs.linear_config_path }}
         run: |
-          python - <<'PYEOF'
+          python <<'PYEOF'
           import json, os, urllib.request
           from pathlib import Path
           from datetime import datetime
@@ -58,6 +58,9 @@ jobs:
           linear_key = os.environ.get('LINEAR_API_KEY', '')
           cfg_path = Path(os.environ['LINEAR_CONFIG_PATH'])
           cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+          team_id = cfg.get('teamId') or cfg.get('team_id')
+          project_id = cfg.get('projectId') or cfg.get('project_id')
+          label_ids_map = cfg.get('labelIds') or cfg.get('label_ids') or {}
 
           def gh_latest(repo):
               r = urllib.request.Request(
@@ -71,13 +74,13 @@ jobs:
                   return None
 
           def linear_create(title, desc, priority, label):
-              if not linear_key or not cfg.get('teamId'):
+              if not linear_key or not team_id:
                   print(f'  (linear not configured) would create: {title}')
                   return
-              label_id = (cfg.get('labelIds') or {}).get(label) or (cfg.get('labelIds') or {}).get('upstream')
-              q = '''mutation($t:String!,$p:String,$ti:String!,$d:String!,$pr:Int!,$l:[String!]){issueCreate(input:{teamId:$t,projectId:$p,title:$ti,description:$d,priority:$pr,labelIds:$l}){success}}'''
+              label_id = label_ids_map.get(label) or label_ids_map.get('upstream')
+              q = 'mutation($t:String!,$p:String,$ti:String!,$d:String!,$pr:Int!,$l:[String!]){issueCreate(input:{teamId:$t,projectId:$p,title:$ti,description:$d,priority:$pr,labelIds:$l}){success}}'
               p = json.dumps({'query': q, 'variables': {
-                  't': cfg['teamId'], 'p': cfg.get('projectId'),
+                  't': team_id, 'p': project_id,
                   'ti': title, 'd': desc, 'pr': priority,
                   'l': [label_id] if label_id else []
               }}).encode()

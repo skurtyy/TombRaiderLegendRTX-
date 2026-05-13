@@ -12,6 +12,10 @@ on:
         required: false
         type: number
         default: 14
+      linear_config_path:
+        required: false
+        type: string
+        default: linear/config.json
     secrets:
       LINEAR_API_KEY:
         required: false
@@ -28,9 +32,10 @@ jobs:
           WATCHED_FILES: ${{ inputs.watched_files }}
           MAX_AGE_DAYS: ${{ inputs.max_age_days }}
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          LINEAR_CONFIG_PATH: ${{ inputs.linear_config_path }}
           REPO: ${{ github.repository }}
         run: |
-          python - <<'PYEOF'
+          python <<'PYEOF'
           import json, os, subprocess, urllib.request
           from datetime import datetime, timedelta, timezone
           from pathlib import Path
@@ -39,7 +44,6 @@ jobs:
           max_age = int(os.environ['MAX_AGE_DAYS'])
           cutoff = datetime.now(timezone.utc) - timedelta(days=max_age)
 
-          # Repo activity: last commit overall
           last_commit_str = subprocess.check_output(['git','log','-1','--format=%cI']).decode().strip()
           last_commit = datetime.fromisoformat(last_commit_str.replace('Z','+00:00'))
           repo_active = last_commit > cutoff
@@ -71,12 +75,15 @@ jobs:
           if not key:
               print('LINEAR_API_KEY not configured, only logged')
               raise SystemExit(0)
-          cfg = json.loads(Path('linear/config.json').read_text()) if Path('linear/config.json').exists() else {}
-          if not cfg.get('teamId'):
-              print('linear/config.json missing or no teamId, only logged')
+          cfg_path = Path(os.environ['LINEAR_CONFIG_PATH'])
+          cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+          team_id = cfg.get('teamId') or cfg.get('team_id')
+          project_id = cfg.get('projectId') or cfg.get('project_id')
+          if not team_id:
+              print('linear/config.json missing or no team_id, only logged')
               raise SystemExit(0)
-          q = '''mutation($t:String!,$p:String,$ti:String!,$d:String!){issueCreate(input:{teamId:$t,projectId:$p,title:$ti,description:$d}){success}}'''
-          payload = json.dumps({'query':q,'variables':{'t':cfg['teamId'],'p':cfg.get('projectId'),'ti':title,'d':desc}}).encode()
+          q = 'mutation($t:String!,$p:String,$ti:String!,$d:String!){issueCreate(input:{teamId:$t,projectId:$p,title:$ti,description:$d}){success}}'
+          payload = json.dumps({'query':q,'variables':{'t':team_id,'p':project_id,'ti':title,'d':desc}}).encode()
           r = urllib.request.Request('https://api.linear.app/graphql', data=payload, headers={'Content-Type':'application/json','Authorization':key})
           urllib.request.urlopen(r).read()
           print('Linear issue created')
