@@ -8,11 +8,6 @@ on:
         required: false
         type: string
         default: '["python"]'
-      build_mode:
-        description: 'autobuild | manual | none (cpp requires autobuild or manual)'
-        required: false
-        type: string
-        default: none
 
 jobs:
   analyze:
@@ -32,7 +27,6 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
-          build-mode: ${{ matrix.language == 'cpp' && 'autobuild' || inputs.build_mode }}
       - name: Autobuild
         if: matrix.language == 'cpp'
         uses: github/codeql-action/autobuild@v3
