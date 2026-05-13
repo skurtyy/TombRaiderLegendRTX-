@@ -107,7 +107,11 @@ jobs:
                   data = json.loads(r.read())
               review = data['content'][0]['text']
           except urllib.error.HTTPError as e:
-              review = f'Claude review failed: HTTP {e.code} {e.read().decode("utf-8", "replace")[:500]}'
+              err_msg = e.read().decode('utf-8', 'replace')
+              if 'credit balance is too low' in err_msg or e.code == 400:
+                  print('Gracefully skipping due to billing/400 error')
+                  raise SystemExit(0)
+              review = f'Claude review failed: HTTP {e.code} {err_msg[:500]}'
 
           body = f"### Claude review (model: {os.environ['CLAUDE_MODEL']})\n\n{review}\n\n---\n_Triggered by `claude-review` label. Re-run by removing then re-adding the label._"
           Path('/tmp/review.md').write_text(body, encoding='utf-8')
