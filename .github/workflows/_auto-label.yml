@@ -22,7 +22,31 @@ jobs:
     if: github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v4
-      - uses: EndBug/label-sync@v2
+      - uses: EndBug/label-sync@v2.3.3
         with:
           config-file: .github/labels.yml
           token: ${{ secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
+
+  label:
+    needs: sync-labels
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Label Dependabot
+        if: ${{ github.actor == 'dependabot[bot]' }}
+        uses: actions-ecosystem/action-add-labels@v1
+        with:
+          github_token: ${{ secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          labels: ${{ inputs.automerge_label }}, dependencies
+      - name: Label Cursor branches
+        if: ${{ startsWith(github.head_ref || '', 'cursor/') }}
+        uses: actions-ecosystem/action-add-labels@v1
+        with:
+          github_token: ${{ secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          labels: ${{ inputs.automerge_label }}, cursor
+      - name: Label Claude branches
+        if: ${{ startsWith(github.head_ref || '', 'claude/') }}
+        uses: actions-ecosystem/action-add-labels@v1
+        with:
+          github_token: ${{ secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          labels: ${{ inputs.automerge_label }}
