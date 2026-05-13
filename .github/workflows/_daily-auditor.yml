@@ -29,25 +29,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Run auditor
+      - name: Generate auditor report
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CLAUDE_MODEL: ${{ inputs.claude_model }}
-          REPORT_DIR: ${{ inputs.report_dir }}
           SINCE_HOURS: ${{ inputs.diff_since_hours }}
         run: |
           set -e
-          mkdir -p "$REPORT_DIR"
-          DATE=$(date -u +%Y-%m-%d)
-          BRANCH="auditor/${DATE}-${GITHUB_RUN_ID}"
-          git config user.name 'github-actions[bot]'
-          git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git fetch --tags
-          # Diff since N hours ago against current HEAD
           SINCE=$(date -u -d "$SINCE_HOURS hours ago" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -u -v-${SINCE_HOURS}H '+%Y-%m-%d %H:%M:%S')
           git log --since="$SINCE" --pretty=format:'%h %s' > /tmp/recent_commits.txt || true
           git log --since="$SINCE" -p --max-count=50 > /tmp/recent_diff.txt || true
-          python - <<'PYEOF'
+          python <<'PYEOF'
           import json, os, urllib.request
           from pathlib import Path
           commits = Path('/tmp/recent_commits.txt').read_text(errors='replace')[:8000]
@@ -65,6 +57,17 @@ jobs:
           report = data['content'][0]['text']
           Path('/tmp/report.md').write_text(report, encoding='utf-8')
           PYEOF
+      - name: Commit and open PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPORT_DIR: ${{ inputs.report_dir }}
+        run: |
+          set -e
+          mkdir -p "$REPORT_DIR"
+          DATE=$(date -u +%Y-%m-%d)
+          BRANCH="auditor/${DATE}-${GITHUB_RUN_ID}"
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
           REPORT_FILE="$REPORT_DIR/auditor-${DATE}.md"
           {
             echo "# Auditor report - ${DATE}"

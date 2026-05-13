@@ -27,6 +27,10 @@ on:
         required: false
         type: string
         default: CHANGELOG.md
+      prompt_path:
+        required: false
+        type: string
+        default: .github/prompts/idea-generation.md
     secrets:
       ANTHROPIC_API_KEY:
         required: true
@@ -54,8 +58,9 @@ jobs:
           MAX_TOKENS: ${{ inputs.max_tokens }}
           LINEAR_CONFIG_PATH: ${{ inputs.linear_config_path }}
           CHANGELOG_PATH: ${{ inputs.changelog_path }}
+          PROMPT_PATH: ${{ inputs.prompt_path }}
         run: |
-          python - <<'PYEOF'
+          python <<'PYEOF'
           import json, os, re, urllib.request
           from pathlib import Path
 
@@ -69,23 +74,37 @@ jobs:
               lines = cl_path.read_text(encoding='utf-8').splitlines()
               changelog = '\n'.join(lines[:80])
 
-          ctx = f"""# Project: {proj}
+          ctx_parts = [
+              f'# Project: {proj}',
+              '',
+              '## CLAUDE.md',
+              claude_md[:3000],
+              '',
+              f'## Whiteboard ({wb_path.name})',
+              whiteboard[:2500],
+              '',
+              '## Recent changelog',
+              changelog[:2000],
+              '',
+          ]
+          ctx = '\n'.join(ctx_parts)
 
-## CLAUDE.md
-{claude_md[:3000]}
-
-## Whiteboard ({wb_path.name})
-{whiteboard[:2500]}
-
-## Recent changelog
-{changelog[:2000]}
-"""
-          prompt = ctx + """\n---\n\nGiven the current project state above, identify the 3-5 most promising under-explored approaches that could resolve an active blocker or advance the project.\n\nFor each idea:\n1. State the hypothesis (1-2 sentences)\n2. Why it likely helps given current evidence\n3. Concrete first step to test\n\nFormat as a numbered list. Be specific to this project's code; avoid generic suggestions.\n"""
+          default_sys = (
+              "You are a senior researcher. Given the project context, identify the 3-5 most promising "
+              "under-explored approaches that could resolve an active blocker or advance the project. "
+              "For each: 1) hypothesis (1-2 sentences), 2) why it likely helps given current evidence, "
+              "3) concrete first step to test. Format as a numbered list. Be specific to this project's code."
+          )
+          ppath = os.environ.get('PROMPT_PATH', '')
+          system_prompt = default_sys
+          if ppath and Path(ppath).exists():
+              system_prompt = Path(ppath).read_text(encoding='utf-8')
 
           payload = json.dumps({
               'model': os.environ['CLAUDE_MODEL'],
               'max_tokens': int(os.environ['MAX_TOKENS']),
-              'messages': [{'role': 'user', 'content': prompt}]
+              'system': system_prompt,
+              'messages': [{'role': 'user', 'content': ctx}]
           }).encode()
           req = urllib.request.Request(
               'https://api.anthropic.com/v1/messages',
@@ -102,39 +121,42 @@ jobs:
           Path('/tmp/ideas.txt').write_text(ideas, encoding='utf-8')
           print(ideas)
 
-          # Push to Linear if configured
           linear_key = os.environ.get('LINEAR_API_KEY', '')
           cfg_path = Path(os.environ['LINEAR_CONFIG_PATH'])
           if linear_key and cfg_path.exists():
               cfg = json.loads(cfg_path.read_text())
-              team_id = cfg.get('teamId')
-              project_id = cfg.get('projectId')
-              label_id = (cfg.get('labelIds') or {}).get('auto-idea')
-              def gql(q, v=None):
-                  p = json.dumps({'query': q, 'variables': v or {}}).encode()
-                  rq = urllib.request.Request('https://api.linear.app/graphql', data=p,
-                      headers={'Content-Type': 'application/json', 'Authorization': linear_key})
-                  with urllib.request.urlopen(rq) as r:
-                      return json.loads(r.read())
-              for chunk in re.split(r'\n(?=\d+\.)', ideas.strip()):
-                  if not chunk.strip():
-                      continue
-                  lines = chunk.strip().splitlines()
-                  title = lines[0].lstrip('0123456789. ').strip()[:200]
-                  body = '\n'.join(lines[1:]).strip()
-                  gql('''mutation($t:String!,$p:String,$ti:String!,$d:String!,$l:[String!]){issueCreate(input:{teamId:$t,projectId:$p,title:$ti,description:$d,labelIds:$l}){success}}''', {
-                      't': team_id, 'p': project_id,
-                      'ti': f'[auto-idea] {title}',
-                      'd': body,
-                      'l': [label_id] if label_id else []
-                  })
-                  print(f'Linear: created "{title}"')
+              team_id = cfg.get('teamId') or cfg.get('team_id')
+              project_id = cfg.get('projectId') or cfg.get('project_id')
+              label_ids_map = cfg.get('labelIds') or cfg.get('label_ids') or {}
+              label_id = label_ids_map.get('auto-idea')
+              if not team_id:
+                  print('Linear config missing teamId/team_id, skipping Linear push')
+              else:
+                  def gql(q, v=None):
+                      p = json.dumps({'query': q, 'variables': v or {}}).encode()
+                      rq = urllib.request.Request('https://api.linear.app/graphql', data=p,
+                          headers={'Content-Type': 'application/json', 'Authorization': linear_key})
+                      with urllib.request.urlopen(rq) as r:
+                          return json.loads(r.read())
+                  for chunk in re.split(r'\n(?=\d+\.)', ideas.strip()):
+                      if not chunk.strip():
+                          continue
+                      lines = chunk.strip().splitlines()
+                      title = lines[0].lstrip('0123456789. ').strip()[:200]
+                      body = '\n'.join(lines[1:]).strip()
+                      gql('mutation($t:String!,$p:String,$ti:String!,$d:String!,$l:[String!]){issueCreate(input:{teamId:$t,projectId:$p,title:$ti,description:$d,labelIds:$l}){success}}', {
+                          't': team_id, 'p': project_id,
+                          'ti': f'[auto-idea] {title}',
+                          'd': body,
+                          'l': [label_id] if label_id else []
+                      })
+                      print(f'Linear: created "{title}"')
           else:
               print('Linear not configured or config missing, skipping Linear push')
           PYEOF
       - name: Open ideas PR
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WHITEBOARD_FILE: ${{ inputs.whiteboard_file }}
         run: |
           set -e
