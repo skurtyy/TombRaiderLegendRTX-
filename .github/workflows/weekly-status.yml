@@ -1,0 +1,69 @@
+name: Weekly Status Report
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  weekly-status:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract status snapshot
+        id: status
+        run: |
+          if [ -f "docs/status/WHITEBOARD.md" ]; then
+            STATUS="$(head -60 docs/status/WHITEBOARD.md)"
+          elif [ -f "WHITEBOARD.md" ]; then
+            STATUS="$(head -60 WHITEBOARD.md)"
+          else
+            STATUS="No WHITEBOARD.md found. Check CHANGELOG.md."
+          fi
+          LAST_CL="$(tail -40 CHANGELOG.md 2>/dev/null | head -20 || echo 'No CHANGELOG.md')"
+          echo "status<<EOF" >> $GITHUB_OUTPUT
+          echo "$STATUS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "last_cl<<EOF" >> $GITHUB_OUTPUT
+          echo "$LAST_CL" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create weekly status issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const date = new Date().toISOString().split('T')[0];
+            const status = `${{ steps.status.outputs.status }}`;
+            const lastCl = `${{ steps.status.outputs.last_cl }}`;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Weekly Status Check — ${date}`,
+              body: [
+                '## Auto-generated weekly status review',
+                '',
+                '> Close this issue after review. Generated every Monday.',
+                '',
+                '### Current WHITEBOARD',
+                '```',
+                status,
+                '```',
+                '',
+                '### Last CHANGELOG entry',
+                '```',
+                lastCl,
+                '```',
+                '',
+                '### Checklist',
+                '- [ ] Review current blockers in WHITEBOARD.md',
+                '- [ ] Verify CHANGELOG.md is up to date',
+                '- [ ] Check if any Dead Ends table entries need updating in CLAUDE.md',
+                '- [ ] Archive any stale build folders in TRL tests/',
+                '- [ ] Are test pass criteria still valid?',
+              ].join('\n'),
+              labels: ['weekly-status'],
+            });
