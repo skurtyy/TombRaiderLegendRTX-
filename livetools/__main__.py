@@ -51,7 +51,6 @@ If trace/steptrace/collect time out with 0 results, alt-tab to the game first.
 from __future__ import annotations
 
 import argparse
-import os
 import subprocess
 import sys
 import time
@@ -693,7 +692,8 @@ def cmd_gamectl(args: argparse.Namespace) -> None:
     if action == "info":
         # info doesn't need a valid hwnd to report the error clearly
         if not hwnd:
-            print(f"[error] {err}"); return
+            print(f"[error] {err}")
+            return
         info = gc.get_window_info(hwnd)
         print(f"hwnd:  {info['hwnd']}")
         print(f"title: {info['title']}")
@@ -702,7 +702,8 @@ def cmd_gamectl(args: argparse.Namespace) -> None:
         return
 
     if not hwnd:
-        print(f"[error] {err}"); return
+        print(f"[error] {err}")
+        return
 
     if action == "key":
         focused = gc.focus_hwnd(hwnd)
