@@ -73,12 +73,18 @@ def _match_filter(record: dict, field: str, op: str, val: Any) -> bool:
         except ValueError:
             pass
     try:
-        if op == "==": return rv == val
-        if op == "!=": return rv != val
-        if op == ">":  return rv > val
-        if op == "<":  return rv < val
-        if op == ">=": return rv >= val
-        if op == "<=": return rv <= val
+        if op == "==":
+            return rv == val
+        if op == "!=":
+            return rv != val
+        if op == ">":
+            return rv > val
+        if op == "<":
+            return rv < val
+        if op == ">=":
+            return rv >= val
+        if op == "<=":
+            return rv <= val
     except TypeError:
         pass
     return str(rv) == str(val) if op == "==" else str(rv) != str(val)
