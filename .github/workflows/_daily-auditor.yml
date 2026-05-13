@@ -6,7 +6,7 @@ on:
       claude_model:
         required: false
         type: string
-        default: claude-3-5-sonnet-20241022
+        default: claude-3-sonnet-20240229
       report_dir:
         required: false
         type: string

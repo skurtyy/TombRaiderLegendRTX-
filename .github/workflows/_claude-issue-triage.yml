@@ -6,7 +6,7 @@ on:
       claude_model:
         required: false
         type: string
-        default: claude-3-5-haiku-20241022
+        default: claude-3-haiku-20240307
       allowed_labels:
         description: JSON array of labels the classifier may assign
         required: false
