@@ -753,9 +753,9 @@ typedef struct WrappedDevice {
     float savedWorld[16];
     float savedView[16];
     float savedProj[16];
-    float vpLockView[16];
-    float vpLockProj[16];
-    int vpLockValid;
+    float vpLockView[16];   /* locked View matrix used to absorb camera jitter */
+    float vpLockProj[16];   /* locked Projection matrix used to absorb camera jitter */
+    int vpLockValid;        /* 1 once vpLockView/vpLockProj hold a valid snapshot */
 
     /* Last *applied* transforms (cache of values pushed via SetTransform).
      * Used to skip redundant SetTransform calls when the matrix is unchanged
