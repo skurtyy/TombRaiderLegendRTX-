@@ -1,0 +1,78 @@
+name: Reusable - Daily Auditor Report (Claude)
+
+on:
+  workflow_call:
+    inputs:
+      claude_model:
+        required: false
+        type: string
+        default: claude-sonnet-4-6
+      report_dir:
+        required: false
+        type: string
+        default: docs/daily_intel
+      diff_since_hours:
+        required: false
+        type: number
+        default: 24
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run auditor
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_MODEL: ${{ inputs.claude_model }}
+          REPORT_DIR: ${{ inputs.report_dir }}
+          SINCE_HOURS: ${{ inputs.diff_since_hours }}
+        run: |
+          set -e
+          mkdir -p "$REPORT_DIR"
+          DATE=$(date -u +%Y-%m-%d)
+          BRANCH="auditor/${DATE}-${GITHUB_RUN_ID}"
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git fetch --tags
+          # Diff since N hours ago against current HEAD
+          SINCE=$(date -u -d "$SINCE_HOURS hours ago" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -u -v-${SINCE_HOURS}H '+%Y-%m-%d %H:%M:%S')
+          git log --since="$SINCE" --pretty=format:'%h %s' > /tmp/recent_commits.txt || true
+          git log --since="$SINCE" -p --max-count=50 > /tmp/recent_diff.txt || true
+          python - <<'PYEOF'
+          import json, os, urllib.request
+          from pathlib import Path
+          commits = Path('/tmp/recent_commits.txt').read_text(errors='replace')[:8000]
+          diff = Path('/tmp/recent_diff.txt').read_text(errors='replace')[:60000]
+          sys = ('You are a daily auditor. Given the last 24h of commits and diff, write a short structured intel report in markdown with sections: '
+                 '## Summary, ## Notable changes, ## Risks / concerns, ## Suggested follow-ups. '
+                 'Be specific to file paths. Avoid generic statements. If nothing notable, say so.')
+          user = f'Commits:\n{commits}\n\n---\n\nDiff (truncated):\n{diff}'
+          p = json.dumps({'model': os.environ['CLAUDE_MODEL'], 'max_tokens': 1500, 'system': sys,
+                          'messages':[{'role':'user','content': user}]}).encode()
+          r = urllib.request.Request('https://api.anthropic.com/v1/messages', data=p, headers={
+              'Content-Type':'application/json','x-api-key': os.environ['ANTHROPIC_API_KEY'],'anthropic-version':'2023-06-01'})
+          with urllib.request.urlopen(r) as resp:
+              data = json.loads(resp.read())
+          report = data['content'][0]['text']
+          Path('/tmp/report.md').write_text(report, encoding='utf-8')
+          PYEOF
+          REPORT_FILE="$REPORT_DIR/auditor-${DATE}.md"
+          {
+            echo "# Auditor report - ${DATE}"
+            echo ''
+            cat /tmp/report.md
+          } > "$REPORT_FILE"
+          git checkout -b "$BRANCH"
+          git add "$REPORT_FILE"
+          git commit -m "auditor: daily report ${DATE}" || { echo 'nothing to commit'; exit 0; }
+          git push origin "$BRANCH"
+          gh pr create --title "Auditor report ${DATE}" --body "Auto-generated daily auditor report." --base ${{ github.event.repository.default_branch }} --head "$BRANCH" --draft || echo 'PR creation failed'
