@@ -41,7 +41,7 @@ jobs:
             rest="${label_info#*|}"
             color="${rest%%|*}"
             description="${rest#*|}"
-            gh label create "$name" --color "$color" --description "$description" --force || true
+            gh label create "$name" --color "$color" --description "$description" --repo "$GITHUB_REPOSITORY" --force || true
           done
 
   label:
