@@ -1,0 +1,12 @@
+name: Upstream Monitor
+
+on:
+  schedule:
+    - cron: '0 6 * * 2'
+    - cron: '0 6 * * 5'
+  workflow_dispatch:
+
+jobs:
+  call:
+    uses: ./.github/workflows/_upstream-monitor.yml
+    secrets: inherit

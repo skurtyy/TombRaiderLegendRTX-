@@ -1,0 +1,11 @@
+name: Claude PR Review
+
+on:
+  pull_request:
+    types: [labeled]
+
+jobs:
+  call:
+    if: github.event.label.name == 'claude-review'
+    uses: ./.github/workflows/_claude-pr-review.yml
+    secrets: inherit

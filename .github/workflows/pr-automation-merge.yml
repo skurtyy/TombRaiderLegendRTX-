@@ -1,0 +1,14 @@
+name: PR Automation - Merge
+
+on:
+  pull_request_target:
+    types: [labeled, synchronize, opened, reopened]
+  check_suite:
+    types: [completed]
+  schedule:
+    - cron: '*/30 * * * *'
+
+jobs:
+  call:
+    uses: ./.github/workflows/_automerge.yml
+    secrets: inherit

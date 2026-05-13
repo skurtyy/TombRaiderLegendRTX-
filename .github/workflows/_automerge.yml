@@ -1,0 +1,38 @@
+name: Reusable - Auto Squash Merge on Label
+
+on:
+  workflow_call:
+    inputs:
+      merge_method:
+        required: false
+        type: string
+        default: squash
+      automerge_label:
+        required: false
+        type: string
+        default: automerge
+    secrets:
+      BOT_TOKEN:
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  statuses: read
+  checks: read
+  issues: write
+
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Auto-merge if labeled
+        uses: pascalgn/automerge-action@v0.16.3
+        env:
+          GITHUB_TOKEN: ${{ secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          MERGE_METHOD: ${{ inputs.merge_method }}
+          MERGE_DELETE_BRANCH: true
+          MERGE_LABELS: ${{ inputs.automerge_label }}
+          MERGE_RETRY_SLEEP: 15000
+          MERGE_RETRIES: 80
+          UPDATE_METHOD: rebase

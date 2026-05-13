@@ -194,6 +194,8 @@ extern void log_floats_dec(const char *prefix, float *data, unsigned int count);
 
 /* VP inverse cache: only recompute when camera moves more than this */
 #define VP_CHANGE_THRESHOLD     1e-4f
+/* H4 View/Proj lock tolerance: absorbs sub-pixel camera jitter between frames */
+#define H4_VP_LOCK_THRESHOLD    1.5e-2f
 /* World matrix quantization grid */
 #define WORLD_QUANT_GRID        1e-3f
 /* Screen-space quad detection: WVP vs Proj tolerance */
@@ -738,6 +740,9 @@ typedef struct WrappedDevice {
     float savedWorld[16];
     float savedView[16];
     float savedProj[16];
+    float vpLockView[16];   /* locked View matrix used to absorb camera jitter */
+    float vpLockProj[16];   /* locked Projection matrix used to absorb camera jitter */
+    int vpLockValid;        /* 1 once vpLockView/vpLockProj hold a valid snapshot */
 
     /* Last *applied* transforms (cache of values pushed via SetTransform).
      * Used to skip redundant SetTransform calls when the matrix is unchanged
@@ -1874,6 +1879,7 @@ static void TRL_OnLevelSceneDetected(WrappedDevice *self) {
     self->skyWarmupStartScene = 0;
     self->vpInverseValid = 0;
     self->proj3DCached = 0;
+    self->vpLockValid = 0;
     self->postLatchSceneLogsRemaining = 30;
     SkyIso_Clear(self);
     PinnedDraw_ReleaseAll(self);
@@ -3237,6 +3243,7 @@ static int __stdcall WD_Reset(WrappedDevice *self, void *pPresentParams) {
     self->psConstDirty = 0;
     self->ffpActive = 0;
     self->vpInverseValid = 0;
+    self->vpLockValid = 0;
     TRL_ResetTexture0AnimationState(self);
     SkyIso_Clear(self);
     /* Stripped declarations are device resources — release before Reset */
@@ -5252,6 +5259,7 @@ WrappedDevice* WrappedDevice_Create(void *pRealDevice) {
     w->curDeclTexcoordOff = 0;
     w->vpInverseValid = 0;
     w->proj3DCached = 0;
+    w->vpLockValid = 0;
     w->transformOverrideActive = 0;
     w->memoryPatchesApplied = 0;
     w->diagMemLogged = 0;
@@ -5354,3 +5362,4 @@ WrappedDevice* WrappedDevice_Create(void *pRealDevice) {
 
     return w;
 }
+

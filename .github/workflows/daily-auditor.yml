@@ -1,0 +1,11 @@
+name: Daily Auditor
+
+on:
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+jobs:
+  call:
+    uses: ./.github/workflows/_daily-auditor.yml
+    secrets: inherit

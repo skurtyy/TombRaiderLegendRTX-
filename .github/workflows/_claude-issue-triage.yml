@@ -1,0 +1,99 @@
+name: Reusable - Claude Issue Triage
+
+on:
+  workflow_call:
+    inputs:
+      claude_model:
+        required: false
+        type: string
+        default: claude-haiku-4-5-20251001
+      allowed_labels:
+        description: JSON array of labels the classifier may assign
+        required: false
+        type: string
+        default: '["bug","feature","question","upstream","docs","good first issue"]'
+      prompt_path:
+        required: false
+        type: string
+        default: ''
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    if: github.event.issue.pull_request == null
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Triage with Claude
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          CLAUDE_MODEL: ${{ inputs.claude_model }}
+          ALLOWED_LABELS: ${{ inputs.allowed_labels }}
+          PROMPT_PATH: ${{ inputs.prompt_path }}
+        run: |
+          python - <<'PYEOF'
+          import json, os, urllib.request, subprocess
+          from pathlib import Path
+
+          repo = os.environ['REPO']
+          num = os.environ['ISSUE_NUMBER']
+          issue = json.loads(subprocess.check_output(['gh','issue','view',num,'--repo',repo,'--json','title,body,author']))
+          labels = json.loads(os.environ['ALLOWED_LABELS'])
+
+          default_sys = (
+              'You are an issue triage assistant. Given an issue title and body, '
+              'output STRICT JSON with two keys: '
+              '"labels" (array, subset of allowed labels) and '
+              '"comment" (one short paragraph: likely root cause hypothesis OR clarifying question OR next-step suggestion). '
+              'Do not output anything outside the JSON.'
+          )
+          ppath = os.environ.get('PROMPT_PATH','')
+          if ppath and Path(ppath).exists():
+              system_prompt = Path(ppath).read_text(encoding='utf-8')
+          else:
+              p = Path('.github/prompts/issue-triage.md')
+              system_prompt = p.read_text(encoding='utf-8') if p.exists() else default_sys
+
+          user_msg = (
+              f'Allowed labels: {labels}\n\n'
+              f'Title: {issue.get("title","")}\n\n'
+              f'Body:\n{(issue.get("body") or "(empty)")[:4000]}\n'
+          )
+          payload = json.dumps({
+              'model': os.environ['CLAUDE_MODEL'],
+              'max_tokens': 512,
+              'system': system_prompt,
+              'messages': [{'role':'user','content': user_msg}]
+          }).encode()
+          req = urllib.request.Request('https://api.anthropic.com/v1/messages', data=payload, headers={
+              'Content-Type':'application/json',
+              'x-api-key': os.environ['ANTHROPIC_API_KEY'],
+              'anthropic-version': '2023-06-01'})
+          with urllib.request.urlopen(req) as r:
+              data = json.loads(r.read())
+          raw = data['content'][0]['text'].strip()
+          # Strip code fences if present
+          if raw.startswith('```'):
+              raw = '\n'.join(raw.splitlines()[1:-1] if raw.endswith('```') else raw.splitlines()[1:])
+          try:
+              parsed = json.loads(raw)
+          except Exception as e:
+              print('Could not parse Claude response as JSON:', e)
+              print(raw)
+              raise SystemExit(0)
+          chosen = [l for l in parsed.get('labels', []) if l in labels]
+          comment = parsed.get('comment', '').strip()
+          if chosen:
+              subprocess.run(['gh','issue','edit',num,'--repo',repo] + sum([['--add-label', l] for l in chosen], []), check=False)
+          if comment:
+              body = f'### Auto-triage (Claude {os.environ["CLAUDE_MODEL"]})\n\n{comment}'
+              subprocess.run(['gh','issue','comment',num,'--repo',repo,'--body',body], check=False)
+          PYEOF
