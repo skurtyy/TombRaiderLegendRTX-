@@ -1,6 +1,0 @@
-🧹 [code health improvement] Remove unused import re & fix CI workflows
-
-🎯 **What:** Removed the unused `import re` statement from `patch_test.py`. Replaced the archived `peter-evans/create-or-update-labels` Github action with a custom inline JS script using `actions/github-script`. Removed the deprecated and incorrectly-configured `github/codeql-action/autobuild` and its configuration from `.github/workflows/_codeql.yml`
-💡 **Why:** The `re` module was imported but never used in the file, cluttering the code. Removing unused imports improves code readability and maintainability. The `peter-evans` action is now archived, causing CI pipeline failures, and the inline javascript solution provides native functionality directly. Finally, the codeql autobuild action configuration raised a `configuration error` due to using a Python workflow config with `autobuild` instead of passing `build-mode: none`. Since Python is an interpreted language, the `autobuild` step is not needed.
-✅ **Verification:** Verified the code manually by inspecting `patch_test.py` and the github actions workflow configs. Ran `ruff check` locally, which passed all checks, indicating the file has correct syntax and follows the configured linting rules.
-✨ **Result:** A cleaner `patch_test.py` script with no unused dependencies, and functional CI actions workflow scripts.
