@@ -36,15 +36,10 @@ jobs:
                   description: label.description
                 });
               } catch (e) {
-                if (e.status === 422) {
-                  await github.rest.issues.updateLabel({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    name: label.name,
-                    color: label.color,
-                    description: label.description
-                  });
-                } else {
+                // If it already exists, ignore or handle the duplicate issue error
+                // The status 422 is standard for "already exists" in GitHub's API
+                // For simplicity, we can ignore 422 errors here to avoid hitting 404s trying to update
+                if (e.status !== 422) {
                   throw e;
                 }
               }
