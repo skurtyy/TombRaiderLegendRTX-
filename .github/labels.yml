@@ -1,0 +1,27 @@
+- name: automerge
+  color: 0E8A16
+  description: Auto-merge this PR
+- name: dependencies
+  color: C2E0C6
+  description: Dependency updates
+- name: cursor
+  color: 1D76DB
+  description: Changes from Cursor agent
+- name: claude-review
+  color: 5319E7
+  description: Request a Claude code review
+- name: auto-idea
+  color: FBCA04
+  description: Auto-generated idea from Claude
+- name: upstream
+  color: B60205
+  description: Upstream dependency change
+- name: risk-low
+  color: C2E0C6
+  description: Low risk change (auto-assessed)
+- name: risk-med
+  color: FBCA04
+  description: Medium risk change (auto-assessed)
+- name: risk-high
+  color: B60205
+  description: High risk change (auto-assessed)
