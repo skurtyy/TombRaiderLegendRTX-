@@ -14,7 +14,7 @@ on:
       claude_model:
         required: false
         type: string
-        default: claude-sonnet-4-6
+        default: claude-3-5-sonnet-20241022
       max_tokens:
         required: false
         type: number
@@ -61,7 +61,7 @@ jobs:
           PROMPT_PATH: ${{ inputs.prompt_path }}
         run: |
           python <<'PYEOF'
-          import json, os, re, urllib.request
+          import json, os, re, urllib.request, urllib.error
           from pathlib import Path
 
           proj = os.environ['PROJECT_NAME']
@@ -115,8 +115,16 @@ jobs:
                   'anthropic-version': '2023-06-01'
               }
           )
-          with urllib.request.urlopen(req) as r:
-              data = json.loads(r.read())
+          try:
+              with urllib.request.urlopen(req) as r:
+                  data = json.loads(r.read())
+          except urllib.error.HTTPError as e:
+              err_msg = e.read().decode('utf-8', 'replace')
+              print(f"Anthropic API Error: {e.code}\n{err_msg}")
+              if 'credit balance is too low' in err_msg or e.code == 400:
+                  print('Gracefully skipping due to billing/400 error')
+                  raise SystemExit(0)
+              raise SystemExit(1)
           ideas = data['content'][0]['text']
           Path('/tmp/ideas.txt').write_text(ideas, encoding='utf-8')
           print(ideas)

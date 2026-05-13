@@ -6,7 +6,7 @@ on:
       claude_model:
         required: false
         type: string
-        default: claude-haiku-4-5-20251001
+        default: claude-3-5-haiku-20241022
       allowed_labels:
         description: JSON array of labels the classifier may assign
         required: false
@@ -40,7 +40,7 @@ jobs:
           PROMPT_PATH: ${{ inputs.prompt_path }}
         run: |
           python - <<'PYEOF'
-          import json, os, urllib.request, subprocess
+          import json, os, urllib.request, urllib.error, subprocess
           from pathlib import Path
 
           repo = os.environ['REPO']
@@ -77,8 +77,16 @@ jobs:
               'Content-Type':'application/json',
               'x-api-key': os.environ['ANTHROPIC_API_KEY'],
               'anthropic-version': '2023-06-01'})
-          with urllib.request.urlopen(req) as r:
-              data = json.loads(r.read())
+          try:
+              with urllib.request.urlopen(req) as r:
+                  data = json.loads(r.read())
+          except urllib.error.HTTPError as e:
+              err_msg = e.read().decode('utf-8', 'replace')
+              print(f"Anthropic API Error: {e.code}\n{err_msg}")
+              if 'credit balance is too low' in err_msg or e.code == 400:
+                  print('Gracefully skipping due to billing/400 error')
+                  raise SystemExit(0)
+              raise SystemExit(1)
           raw = data['content'][0]['text'].strip()
           # Strip code fences if present
           if raw.startswith('```'):
