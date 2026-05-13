@@ -10,9 +10,9 @@ on:
         default: true
     secrets:
       LINEAR_API_KEY:
-        required: true
+        required: false
       LINEAR_TEAM_ID:
-        required: true
+        required: false
 
 jobs:
   sync-to-linear:

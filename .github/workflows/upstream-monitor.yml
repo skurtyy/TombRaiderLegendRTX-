@@ -8,6 +8,5 @@ on:
 
 jobs:
   call:
-    if: vars.LINEAR_ENABLED == 'true'
     uses: ./.github/workflows/_upstream-monitor.yml
     secrets: inherit

@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'patches/**/proxy/**'
+      - 'patches/**/remix-comp/**'
       - '**/remix-comp-proxy.ini'
       - '**/renderer.cpp'
   workflow_dispatch:
@@ -12,5 +13,5 @@ jobs:
   call:
     uses: ./.github/workflows/_dx9-ffp-regression.yml
     with:
-      ini_path: patches/TombRaiderLegend/proxy/remix-comp-proxy.ini
-      renderer_path: patches/TombRaiderLegend/proxy/renderer.cpp
+      ini_path: patches/TombRaiderLegend/remix-comp/assets/remix-comp-proxy.ini
+      renderer_path: patches/TombRaiderLegend/remix-comp/src/comp/modules/renderer.cpp

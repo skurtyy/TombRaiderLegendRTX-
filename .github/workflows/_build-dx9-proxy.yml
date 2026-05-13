@@ -34,6 +34,11 @@ on:
         required: false
         type: string
         default: ''
+      cmake_output_dir:
+        description: Where the cmake build emits the artifact, relative to cmake_root (default 'build/Release')
+        required: false
+        type: string
+        default: 'build/Release'
       artifact_name:
         required: false
         type: string
@@ -83,17 +88,24 @@ jobs:
           cmake -S . -B build -A $vsArch
           cmake --build build --config Release
       - name: Verify output
-        working-directory: ${{ inputs.proxy_dir }}
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $out = "${{ inputs.output_name }}"
-          if (Test-Path $out) {
-            Write-Host "Built $out ($((Get-Item $out).Length) bytes)"
-          } elseif (Test-Path "build/Release/$out") {
-            Write-Host "Built build/Release/$out"
+          $candidates = @()
+          if ('${{ inputs.cmake_root }}' -eq '') {
+            $candidates += Join-Path "${{ inputs.proxy_dir }}" $out
+            $candidates += Join-Path "${{ inputs.proxy_dir }}" (Join-Path "build/Release" $out)
           } else {
+            $candidates += Join-Path "${{ inputs.cmake_root }}" (Join-Path "${{ inputs.cmake_output_dir }}" $out)
+            $candidates += Join-Path "${{ inputs.cmake_root }}" $out
+          }
+          $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $found) {
+            Write-Host "Searched:"; $candidates | ForEach-Object { Write-Host "  $_" }
             throw "Output $out not found"
           }
+          Write-Host "Built $found ($((Get-Item $found).Length) bytes)"
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -101,4 +113,6 @@ jobs:
           path: |
             ${{ inputs.proxy_dir }}/${{ inputs.output_name }}
             ${{ inputs.proxy_dir }}/build/Release/${{ inputs.output_name }}
+            ${{ inputs.cmake_root }}/${{ inputs.cmake_output_dir }}/${{ inputs.output_name }}
+            ${{ inputs.cmake_root }}/${{ inputs.output_name }}
           if-no-files-found: warn
