@@ -21,37 +21,20 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
-      - uses: peter-evans/create-or-update-labels@v4
-        with:
-          token: ${{ secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
-          labels: |
-            - name: ${{ inputs.automerge_label }}
-              color: 0E8A16
-              description: Auto-merge this PR
-            - name: dependencies
-              color: C2E0C6
-              description: Dependency updates
-            - name: cursor
-              color: 1D76DB
-              description: Changes from Cursor agent
-            - name: claude-review
-              color: 5319E7
-              description: Request a Claude code review
-            - name: auto-idea
-              color: FBCA04
-              description: Auto-generated idea from Claude
-            - name: upstream
-              color: B60205
-              description: Upstream dependency change
-            - name: risk-low
-              color: C2E0C6
-              description: Low risk change (auto-assessed)
-            - name: risk-med
-              color: FBCA04
-              description: Medium risk change (auto-assessed)
-            - name: risk-high
-              color: B60205
-              description: High risk change (auto-assessed)
+      - uses: actions/checkout@v4.2.2
+      - name: Sync Labels
+        env:
+          GITHUB_TOKEN: ${{ secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create "${{ inputs.automerge_label }}" --color 0E8A16 --description "Auto-merge this PR" --force
+          gh label create "dependencies" --color C2E0C6 --description "Dependency updates" --force
+          gh label create "cursor" --color 1D76DB --description "Changes from Cursor agent" --force
+          gh label create "claude-review" --color 5319E7 --description "Request a Claude code review" --force
+          gh label create "auto-idea" --color FBCA04 --description "Auto-generated idea from Claude" --force
+          gh label create "upstream" --color B60205 --description "Upstream dependency change" --force
+          gh label create "risk-low" --color C2E0C6 --description "Low risk change (auto-assessed)" --force
+          gh label create "risk-med" --color FBCA04 --description "Medium risk change (auto-assessed)" --force
+          gh label create "risk-high" --color B60205 --description "High risk change (auto-assessed)" --force
 
   label:
     needs: sync-labels
