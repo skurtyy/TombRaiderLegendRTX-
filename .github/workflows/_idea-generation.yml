@@ -1,0 +1,156 @@
+name: Reusable - Idea Generation (Claude)
+
+on:
+  workflow_call:
+    inputs:
+      whiteboard_file:
+        required: false
+        type: string
+        default: HANDOFF.md
+      project_name:
+        required: false
+        type: string
+        default: ''
+      claude_model:
+        required: false
+        type: string
+        default: claude-sonnet-4-6
+      max_tokens:
+        required: false
+        type: number
+        default: 2048
+      linear_config_path:
+        required: false
+        type: string
+        default: linear/config.json
+      changelog_path:
+        required: false
+        type: string
+        default: CHANGELOG.md
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+      LINEAR_API_KEY:
+        required: false
+
+jobs:
+  generate-ideas:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build context, call Claude, push ideas
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          WHITEBOARD_FILE: ${{ inputs.whiteboard_file }}
+          PROJECT_NAME: ${{ inputs.project_name || github.event.repository.name }}
+          CLAUDE_MODEL: ${{ inputs.claude_model }}
+          MAX_TOKENS: ${{ inputs.max_tokens }}
+          LINEAR_CONFIG_PATH: ${{ inputs.linear_config_path }}
+          CHANGELOG_PATH: ${{ inputs.changelog_path }}
+        run: |
+          python - <<'PYEOF'
+          import json, os, re, urllib.request
+          from pathlib import Path
+
+          proj = os.environ['PROJECT_NAME']
+          wb_path = Path(os.environ['WHITEBOARD_FILE'])
+          claude_md = Path('CLAUDE.md').read_text(encoding='utf-8') if Path('CLAUDE.md').exists() else ''
+          whiteboard = wb_path.read_text(encoding='utf-8') if wb_path.exists() else ''
+          changelog = ''
+          cl_path = Path(os.environ['CHANGELOG_PATH'])
+          if cl_path.exists():
+              lines = cl_path.read_text(encoding='utf-8').splitlines()
+              changelog = '\n'.join(lines[:80])
+
+          ctx = f"""# Project: {proj}
+
+## CLAUDE.md
+{claude_md[:3000]}
+
+## Whiteboard ({wb_path.name})
+{whiteboard[:2500]}
+
+## Recent changelog
+{changelog[:2000]}
+"""
+          prompt = ctx + """\n---\n\nGiven the current project state above, identify the 3-5 most promising under-explored approaches that could resolve an active blocker or advance the project.\n\nFor each idea:\n1. State the hypothesis (1-2 sentences)\n2. Why it likely helps given current evidence\n3. Concrete first step to test\n\nFormat as a numbered list. Be specific to this project's code; avoid generic suggestions.\n"""
+
+          payload = json.dumps({
+              'model': os.environ['CLAUDE_MODEL'],
+              'max_tokens': int(os.environ['MAX_TOKENS']),
+              'messages': [{'role': 'user', 'content': prompt}]
+          }).encode()
+          req = urllib.request.Request(
+              'https://api.anthropic.com/v1/messages',
+              data=payload,
+              headers={
+                  'Content-Type': 'application/json',
+                  'x-api-key': os.environ['ANTHROPIC_API_KEY'],
+                  'anthropic-version': '2023-06-01'
+              }
+          )
+          with urllib.request.urlopen(req) as r:
+              data = json.loads(r.read())
+          ideas = data['content'][0]['text']
+          Path('/tmp/ideas.txt').write_text(ideas, encoding='utf-8')
+          print(ideas)
+
+          # Push to Linear if configured
+          linear_key = os.environ.get('LINEAR_API_KEY', '')
+          cfg_path = Path(os.environ['LINEAR_CONFIG_PATH'])
+          if linear_key and cfg_path.exists():
+              cfg = json.loads(cfg_path.read_text())
+              team_id = cfg.get('teamId')
+              project_id = cfg.get('projectId')
+              label_id = (cfg.get('labelIds') or {}).get('auto-idea')
+              def gql(q, v=None):
+                  p = json.dumps({'query': q, 'variables': v or {}}).encode()
+                  rq = urllib.request.Request('https://api.linear.app/graphql', data=p,
+                      headers={'Content-Type': 'application/json', 'Authorization': linear_key})
+                  with urllib.request.urlopen(rq) as r:
+                      return json.loads(r.read())
+              for chunk in re.split(r'\n(?=\d+\.)', ideas.strip()):
+                  if not chunk.strip():
+                      continue
+                  lines = chunk.strip().splitlines()
+                  title = lines[0].lstrip('0123456789. ').strip()[:200]
+                  body = '\n'.join(lines[1:]).strip()
+                  gql('''mutation($t:String!,$p:String,$ti:String!,$d:String!,$l:[String!]){issueCreate(input:{teamId:$t,projectId:$p,title:$ti,description:$d,labelIds:$l}){success}}''', {
+                      't': team_id, 'p': project_id,
+                      'ti': f'[auto-idea] {title}',
+                      'd': body,
+                      'l': [label_id] if label_id else []
+                  })
+                  print(f'Linear: created "{title}"')
+          else:
+              print('Linear not configured or config missing, skipping Linear push')
+          PYEOF
+      - name: Open ideas PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WHITEBOARD_FILE: ${{ inputs.whiteboard_file }}
+        run: |
+          set -e
+          DATE=$(date +%Y-%m-%d)
+          BRANCH="bot/ideas-${DATE}-${{ github.run_id }}"
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git checkout -b "$BRANCH"
+          IDEAS=$(cat /tmp/ideas.txt)
+          {
+            echo ''
+            echo "## Auto-generated ideas - $DATE"
+            echo ''
+            echo "$IDEAS"
+          } >> "$WHITEBOARD_FILE"
+          git add "$WHITEBOARD_FILE"
+          git commit -m "bot: auto-generated ideas $DATE"
+          git push origin "$BRANCH"
+          gh pr create --title "Auto-ideas $DATE" --body "Auto-generated by idea-generation reusable workflow." --base ${{ github.event.repository.default_branch }} --head "$BRANCH" --draft || echo 'PR create failed, branch pushed'
