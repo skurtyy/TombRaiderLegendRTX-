@@ -98,3 +98,20 @@ def test_decide_action(mock_call):
     assert action["action"] == "key"
     assert action["args"]["name"] == "RETURN"
     assert action["reasoning"] == "select new game"
+
+def test_extract_json_markdown_continue():
+    # Covers except json.JSONDecodeError: continue for markdown blocks
+    text = "```\ninvalid json\n```"
+    assert _extract_json(text) is None
+
+def test_extract_json_markdown_invalid_then_valid():
+    text = "```\nnot json\n```\n```json\n{\"key\": \"value\"}\n```"
+    assert _extract_json(text) == {"key": "value"}
+
+def test_extract_json_embedded_invalid_json():
+    # invalid json string inside text, but with matching braces
+    text = "Some text { invalid json } and then valid {\"key\": \"value\"}"
+    assert _extract_json(text) is None
+
+def test_extract_json_no_braces():
+    assert _extract_json("no braces here") is None
