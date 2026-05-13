@@ -31,6 +31,7 @@ jobs:
       - name: Init CodeQL
         uses: github/codeql-action/init@v3
         with:
+          setup-python-dependencies: false
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.language == 'cpp' && 'autobuild' || inputs.build_mode }}
       - name: Autobuild
