@@ -1,7 +1,7 @@
 """Preflight health checks — verify prerequisites before running the agent."""
+
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import sys
@@ -33,19 +33,27 @@ class CheckResult:
 def check_python_version() -> CheckResult:
     v = sys.version_info[:2]
     ok = v >= REQUIRED_PYTHON
-    msg = f"{v[0]}.{v[1]}" + ("" if ok else f" (need {REQUIRED_PYTHON[0]}.{REQUIRED_PYTHON[1]}+)")
+    msg = f"{v[0]}.{v[1]}" + (
+        "" if ok else f" (need {REQUIRED_PYTHON[0]}.{REQUIRED_PYTHON[1]}+)"
+    )
     return CheckResult("Python version", ok, msg)
 
 
 def check_platform() -> CheckResult:
     if IS_WINDOWS:
         return CheckResult("Platform", True, "Windows")
-    return CheckResult("Platform", False, f"{sys.platform} — gamepilot requires Windows for game control", fatal=True)
+    return CheckResult(
+        "Platform",
+        False,
+        f"{sys.platform} — gamepilot requires Windows for game control",
+        fatal=True,
+    )
 
 
 def check_pillow() -> CheckResult:
     try:
         from PIL import Image
+
         return CheckResult("Pillow", True, f"v{Image.__version__}")
     except ImportError:
         return CheckResult("Pillow", False, "not installed (pip install Pillow)")
@@ -54,6 +62,7 @@ def check_pillow() -> CheckResult:
 def check_numpy() -> CheckResult:
     try:
         import numpy as np
+
         return CheckResult("numpy", True, f"v{np.__version__}")
     except ImportError:
         return CheckResult("numpy", False, "not installed (pip install numpy)")
@@ -68,7 +77,9 @@ def check_claude_cli() -> CheckResult:
     try:
         r = subprocess.run(
             ["claude", "--version"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         version = r.stdout.strip() or r.stderr.strip()
         if r.returncode == 0:
@@ -93,7 +104,9 @@ def check_game_dir() -> CheckResult:
     if not GAME_EXE.exists():
         return CheckResult("Game executable", False, f"trl.exe not found in {GAME_DIR}")
     if not LAUNCHER.exists():
-        return CheckResult("Game launcher", False, f"NvRemixLauncher32.exe not found", fatal=False)
+        return CheckResult(
+            "Game launcher", False, "NvRemixLauncher32.exe not found", fatal=False
+        )
     return CheckResult("Game directory", True, str(GAME_DIR))
 
 
@@ -109,7 +122,9 @@ def check_proxy_dll() -> CheckResult:
     if dll.exists():
         size_kb = dll.stat().st_size / 1024
         return CheckResult("Proxy DLL", True, f"d3d9.dll ({size_kb:.0f} KB)")
-    return CheckResult("Proxy DLL", False, "d3d9.dll not in game directory", fatal=False)
+    return CheckResult(
+        "Proxy DLL", False, "d3d9.dll not in game directory", fatal=False
+    )
 
 
 def check_nvidia_screenshot_dir() -> CheckResult:
@@ -118,19 +133,28 @@ def check_nvidia_screenshot_dir() -> CheckResult:
     try:
         from config import NVIDIA_SCREENSHOT_DIR
     except ImportError:
-        return CheckResult("NVIDIA screenshots", False, "config.py not found", fatal=False)
+        return CheckResult(
+            "NVIDIA screenshots", False, "config.py not found", fatal=False
+        )
 
     if NVIDIA_SCREENSHOT_DIR.exists():
         return CheckResult("NVIDIA screenshots", True, str(NVIDIA_SCREENSHOT_DIR))
-    return CheckResult("NVIDIA screenshots", False, f"not found: {NVIDIA_SCREENSHOT_DIR}", fatal=False)
+    return CheckResult(
+        "NVIDIA screenshots", False, f"not found: {NVIDIA_SCREENSHOT_DIR}", fatal=False
+    )
 
 
 def check_livetools() -> CheckResult:
     """Check that livetools is importable."""
     if not IS_WINDOWS:
-        return CheckResult("livetools", False, "requires Windows (ctypes.windll)", fatal=False)
+        return CheckResult(
+            "livetools", False, "requires Windows (ctypes.windll)", fatal=False
+        )
     try:
-        from livetools.gamectl import find_hwnd_by_exe
+        import importlib.util
+
+        if importlib.util.find_spec("livetools.gamectl") is None:
+            raise ImportError("not found")
         return CheckResult("livetools", True, "gamectl importable")
     except (ImportError, AttributeError) as e:
         return CheckResult("livetools", False, f"import failed: {e}")

@@ -6,7 +6,7 @@ on:
       claude_model:
         required: false
         type: string
-        default: claude-haiku-4-5-20251001
+        default: claude-3-haiku-20240307
       review_recommendation_threshold:
         description: Post a comment recommending `claude-review` if assessed risk is at this level or higher (low|med|high)
         required: false
@@ -49,8 +49,12 @@ jobs:
                                 'messages':[{'role':'user','content': diff or '(empty diff)'}]}).encode()
           req = urllib.request.Request('https://api.anthropic.com/v1/messages', data=payload, headers={
               'Content-Type':'application/json','x-api-key': os.environ['ANTHROPIC_API_KEY'],'anthropic-version':'2023-06-01'})
-          with urllib.request.urlopen(req) as r:
-              data = json.loads(r.read())
+          try:
+              with urllib.request.urlopen(req) as r:
+                  data = json.loads(r.read())
+          except urllib.error.HTTPError as e:
+              print("HTTP Error:", e.code, e.read())
+              raise
           raw = data['content'][0]['text'].strip().strip('`')
           if raw.startswith('json'):
               raw = raw[4:].strip()

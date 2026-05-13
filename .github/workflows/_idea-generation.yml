@@ -14,7 +14,7 @@ on:
       claude_model:
         required: false
         type: string
-        default: claude-sonnet-4-6
+        default: claude-3-sonnet-20240229
       max_tokens:
         required: false
         type: number
