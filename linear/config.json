@@ -1,0 +1,25 @@
+{
+  "teamId": "ccbdbc66-5c96-4204-a8f2-3826b72ec882",
+  "teamName": "RTX Remix Game Ports",
+  "projectId": "b51b4c07-2ffc-40d8-98e3-121a7d53e845",
+  "projectName": "TombRaiderLegendRTX-",
+  "labelIds": {
+    "proxy-code": "354e1478-23f8-4059-ad24-ee82beda112d",
+    "config": "5a70c324-0267-49ec-ab7d-baa74a292c6d",
+    "static-analysis": "5fffe7c6-89fc-4fa7-aa8e-d5a11f7a6ddf",
+    "hash-stability": "95d57263-1b23-45c3-bf5c-dc1c61525f1a",
+    "culling": "23eb90c0-e2d3-4709-88a8-583673ca53fa",
+    "sky-water": "b7f4273b-871d-440e-b63d-fb53bc2ad66b",
+    "upstream": "55f3dc35-7bb4-41cb-a5aa-6395f086bddc",
+    "auto-idea": "92fededb-1622-41e1-bba8-ab126606637e"
+  },
+  "workflowStates": {
+    "Done": "fbc8f75d-8e6b-4811-af21-3750e7af6a21",
+    "In Progress": "ea606800-0c8b-4319-a2a7-fd379c5ac4e9",
+    "Canceled": "e829640b-05d3-4fd5-9625-4bf2e7c79068",
+    "Backlog": "d326f03d-ec05-4f34-b076-e29ad48bbb84",
+    "Duplicate": "8a3c45e1-5f2a-4302-af8e-fcac1bbe299c",
+    "In Review": "4786975b-e5f2-4b15-b724-d65fb7443fd2",
+    "Todo": "39524654-0cba-4da8-9060-b95704385c23"
+  }
+}

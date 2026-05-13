@@ -1,0 +1,157 @@
+name: Upstream Monitor
+
+on:
+  schedule:
+    - cron: '0 6 * * 2'   # Tuesday 06:00 UTC
+    - cron: '0 6 * * 5'   # Friday 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    if: vars.LINEAR_ENABLED == 'true'
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check upstream releases
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+        run: |
+          python - <<'EOF'
+          import json, urllib.request, os
+          from pathlib import Path
+          from datetime import datetime
+
+          REPOS = [
+              "NVIDIAGameWorks/dxvk-remix",
+              "NVIDIAGameWorks/rtx-remix",
+              "doitsujin/dxvk",
+          ]
+
+          BREAKING_KEYWORDS = [
+              "breaking", "removed api", "deprecated", "incompatible",
+              "breaking change", "api removed", "no longer supported",
+          ]
+
+          versions_path = Path("docs/daily_intel/upstream-versions.json")
+          versions_path.parent.mkdir(parents=True, exist_ok=True)
+          known = json.loads(versions_path.read_text()) if versions_path.exists() else {}
+
+          config = json.loads(Path("linear/config.json").read_text())
+          LINEAR_API_KEY = os.environ.get("LINEAR_API_KEY", "")
+          LINEAR_API_URL = "https://api.linear.app/graphql"
+          GH_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+
+          def gh_latest_release(repo):
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/releases/latest",
+                  headers={"Authorization": f"Bearer {GH_TOKEN}", "Accept": "application/vnd.github+json"}
+              )
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      return json.loads(r.read())
+              except Exception as e:
+                  print(f"  Warning: could not fetch {repo}: {e}")
+                  return None
+
+          def linear_gql(query, variables=None):
+              payload = json.dumps({"query": query, "variables": variables or {}}).encode()
+              req = urllib.request.Request(LINEAR_API_URL, data=payload,
+                  headers={"Content-Type": "application/json", "Authorization": LINEAR_API_KEY})
+              with urllib.request.urlopen(req) as r:
+                  return json.loads(r.read())
+
+          def create_linear_issue(title, description, priority, label_name):
+              label_id = config["labelIds"].get(label_name) or config["labelIds"].get("upstream")
+              linear_gql("""
+              mutation($teamId: String!, $projectId: String!, $title: String!, $description: String!, $priority: Int!, $labelIds: [String!]) {
+                  issueCreate(input: {teamId: $teamId, projectId: $projectId, title: $title, description: $description, priority: $priority, labelIds: $labelIds}) {
+                      success
+                  }
+              }""", {
+                  "teamId": config["teamId"],
+                  "projectId": config["projectId"],
+                  "title": title,
+                  "description": description,
+                  "priority": priority,
+                  "labelIds": [label_id] if label_id else []
+              })
+
+          updated = dict(known)
+          log_entries = []
+
+          for repo in REPOS:
+              release = gh_latest_release(repo)
+              if not release:
+                  continue
+              tag = release.get("tag_name", "")
+              body = (release.get("body") or "").lower()
+              published = release.get("published_at", "")
+              prev_tag = known.get(repo, "")
+
+              if tag != prev_tag:
+                  print(f"  New release: {repo} {tag} (was {prev_tag or 'unknown'})")
+                  updated[repo] = tag
+                  log_entries.append({
+                      "repo": repo, "tag": tag, "prev": prev_tag,
+                      "published": published, "checked": datetime.utcnow().isoformat()
+                  })
+
+                  # Check for breaking changes
+                  is_breaking = any(kw in body for kw in BREAKING_KEYWORDS)
+                  if is_breaking:
+                      print(f"    ⚠️  Breaking change detected in {repo} {tag}")
+                      create_linear_issue(
+                          title=f"[BLOCKER] Breaking change in {repo} {tag}",
+                          description=(
+                              f"**Repo:** {repo}\n"
+                              f"**Tag:** {tag}\n"
+                              f"**Previous:** {prev_tag}\n\n"
+                              f"Breaking change keywords detected in release notes. "
+                              f"Review before updating NvRemixBridge or dxvk-remix in this project.\n\n"
+                              f"Release URL: https://github.com/{repo}/releases/tag/{tag}"
+                          ),
+                          priority=0,   # Urgent
+                          label_name="upstream"
+                      )
+                  else:
+                      create_linear_issue(
+                          title=f"[Research] New release: {repo} {tag}",
+                          description=(
+                              f"**Repo:** {repo}\n"
+                              f"**Tag:** {tag}\n"
+                              f"**Previous:** {prev_tag}\n\n"
+                              f"Review release notes for relevant fixes or features.\n\n"
+                              f"Release URL: https://github.com/{repo}/releases/tag/{tag}"
+                          ),
+                          priority=2,
+                          label_name="upstream"
+                      )
+              else:
+                  print(f"  No change: {repo} still at {tag}")
+
+          versions_path.write_text(json.dumps(updated, indent=2))
+
+          if log_entries:
+              log_path = Path(f"docs/daily_intel/upstream-{datetime.utcnow().strftime('%Y-%m-%d')}.json")
+              log_path.write_text(json.dumps(log_entries, indent=2))
+              print(f"  Log written: {log_path}")
+          EOF
+
+      - name: Commit version snapshot if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/daily_intel/
+          git diff --staged --quiet || git commit -m "bot: upstream version snapshot $(date +%Y-%m-%d)"
+          git push || true
