@@ -6,7 +6,7 @@ on:
       claude_model:
         required: false
         type: string
-        default: claude-3-5-haiku-20241022
+        default: claude-3-haiku-20240307
       review_recommendation_threshold:
         description: Post a comment recommending `claude-review` if assessed risk is at this level or higher (low|med|high)
         required: false
