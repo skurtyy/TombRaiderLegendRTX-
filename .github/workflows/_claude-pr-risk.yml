@@ -48,8 +48,7 @@ jobs:
           payload = json.dumps({'model': os.environ['CLAUDE_MODEL'], 'max_tokens': 32, 'system': sys,
                                 'messages':[{'role':'user','content': diff or '(empty diff)'}]}).encode()
           req = urllib.request.Request('https://api.anthropic.com/v1/messages', data=payload, headers={
-              'Content-Type':'application/json','x-api-key': os.environ['ANTHROPIC_API_KEY'],'anthropic-version':'2023-06-01'})
-          try:
+              'Content-Type':'application/json','x-api-key': os.environ['ANTHROPIC_API_KEY'],'anthropic-version':'2023-06-01'})          try:
               with urllib.request.urlopen(req) as r:
                   data = json.loads(r.read())
           except urllib.error.HTTPError as e:
