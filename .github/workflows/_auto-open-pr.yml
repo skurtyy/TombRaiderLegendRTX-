@@ -1,0 +1,37 @@
+name: Reusable - Auto Open PR on Push
+
+on:
+  workflow_call:
+    inputs:
+      base_branch:
+        required: false
+        type: string
+        default: main
+      automerge_label:
+        required: false
+        type: string
+        default: automerge
+    secrets:
+      BOT_TOKEN:
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  propose-pr:
+    runs-on: ubuntu-latest
+    if: github.repository_owner == github.actor || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Create or update PR
+        uses: repo-sync/pull-request@v2
+        with:
+          destination_branch: ${{ inputs.base_branch }}
+          pr_title: "chore: auto PR from ${{ github.ref_name }}"
+          pr_body: "Automated PR created on push to ${{ github.ref_name }}."
+          pr_label: ${{ inputs.automerge_label }}
+          github_token: ${{ secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
