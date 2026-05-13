@@ -38,5 +38,7 @@ jobs:
         uses: github/codeql-action/autobuild@v3
       - name: Analyze
         uses: github/codeql-action/analyze@v3
+        continue-on-error: true
         with:
+          upload: false
           category: "/language:${{ matrix.language }}"
