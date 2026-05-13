@@ -6,7 +6,7 @@ on:
       claude_model:
         required: false
         type: string
-        default: claude-sonnet-4-6
+        default: claude-3-5-sonnet-latest
       max_files:
         required: false
         type: number
