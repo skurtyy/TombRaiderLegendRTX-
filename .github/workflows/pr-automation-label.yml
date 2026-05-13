@@ -1,0 +1,13 @@
+name: PR Automation - Label
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, labeled]
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  call:
+    uses: ./.github/workflows/_auto-label.yml
+    secrets: inherit

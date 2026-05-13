@@ -1,0 +1,113 @@
+name: Reusable - Claude Release Notes on Tag
+
+on:
+  workflow_call:
+    inputs:
+      claude_model:
+        required: false
+        type: string
+        default: claude-sonnet-4-6
+      previous_tag:
+        required: false
+        type: string
+        default: ''
+      attach_artifact_pattern:
+        description: glob to upload to the release (optional)
+        required: false
+        type: string
+        default: ''
+      prompt_path:
+        required: false
+        type: string
+        default: ''
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+
+jobs:
+  release-notes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Resolve range
+        id: range
+        env:
+          INPUT_PREV: ${{ inputs.previous_tag }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          if [ -z "$INPUT_PREV" ]; then
+            PREV=$(git tag --sort=-creatordate | grep -v "^$TAG$" | head -n 1 || true)
+          else
+            PREV="$INPUT_PREV"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "prev=$PREV" >> $GITHUB_OUTPUT
+          if [ -n "$PREV" ]; then
+            git log --pretty=format:'%h %s%n%b%n---' "$PREV".."$TAG" > /tmp/commits.txt
+          else
+            git log --pretty=format:'%h %s%n%b%n---' "$TAG" > /tmp/commits.txt
+          fi
+          head -c 200 /tmp/commits.txt
+      - name: Generate notes
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_MODEL: ${{ inputs.claude_model }}
+          TAG: ${{ steps.range.outputs.tag }}
+          PREV: ${{ steps.range.outputs.prev }}
+          PROMPT_PATH: ${{ inputs.prompt_path }}
+        run: |
+          python - <<'PYEOF'
+          import json, os, urllib.request
+          from pathlib import Path
+          commits = Path('/tmp/commits.txt').read_text(encoding='utf-8', errors='replace')[:60000]
+          default_sys = (
+              'You write polished GitHub release notes. Given a commit log between two tags, '
+              'produce markdown with these sections (omit empty ones): '
+              '## Highlights, ## Features, ## Fixes, ## Performance, ## Docs, ## Internal. '
+              'Group conventional-commit prefixes appropriately. Be terse; one bullet per commit; '
+              'omit chore/merge noise. End with a one-line summary.'
+          )
+          ppath = os.environ.get('PROMPT_PATH','')
+          if ppath and Path(ppath).exists():
+              system_prompt = Path(ppath).read_text(encoding='utf-8')
+          else:
+              p = Path('.github/prompts/release-notes.md')
+              system_prompt = p.read_text(encoding='utf-8') if p.exists() else default_sys
+          user = f'Tag: {os.environ["TAG"]}\nPrevious: {os.environ["PREV"] or "(none)"}\n\nCommits:\n{commits}'
+          payload = json.dumps({
+              'model': os.environ['CLAUDE_MODEL'],
+              'max_tokens': 2048,
+              'system': system_prompt,
+              'messages': [{'role':'user','content': user}]
+          }).encode()
+          req = urllib.request.Request('https://api.anthropic.com/v1/messages', data=payload, headers={
+              'Content-Type':'application/json',
+              'x-api-key': os.environ['ANTHROPIC_API_KEY'],
+              'anthropic-version':'2023-06-01'})
+          with urllib.request.urlopen(req) as r:
+              data = json.loads(r.read())
+          Path('/tmp/notes.md').write_text(data['content'][0]['text'], encoding='utf-8')
+          PYEOF
+      - name: Create/update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.range.outputs.tag }}
+          PATTERN: ${{ inputs.attach_artifact_pattern }}
+        run: |
+          set -e
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file /tmp/notes.md
+          else
+            gh release create "$TAG" --title "$TAG" --notes-file /tmp/notes.md
+          fi
+          if [ -n "$PATTERN" ]; then
+            shopt -s nullglob
+            FILES=( $PATTERN )
+            if [ "${#FILES[@]}" -gt 0 ]; then
+              gh release upload "$TAG" "${FILES[@]}" --clobber
+            fi
+          fi

@@ -1,0 +1,16 @@
+name: Idea Generation
+
+on:
+  schedule:
+    - cron: '0 9 * * 3'
+  workflow_dispatch:
+
+jobs:
+  call:
+    if: vars.LINEAR_ENABLED == 'true' || vars.LINEAR_ENABLED == null
+    uses: ./.github/workflows/_idea-generation.yml
+    secrets: inherit
+    with:
+      whiteboard_file: WHITEBOARD.md
+      claude_model: claude-opus-4-7
+      max_tokens: 4096

@@ -1,0 +1,104 @@
+name: Reusable - DX9 Proxy DLL Build
+
+on:
+  workflow_call:
+    inputs:
+      proxy_dir:
+        description: Directory containing the proxy sources (must hold the .c/.cpp/.def files)
+        required: true
+        type: string
+      sources:
+        description: Space-separated list of source files in proxy_dir
+        required: false
+        type: string
+        default: 'd3d9_main.c d3d9_wrapper.c d3d9_device.c'
+      def_file:
+        required: false
+        type: string
+        default: d3d9.def
+      output_name:
+        required: false
+        type: string
+        default: d3d9.dll
+      arch:
+        description: x86 or x64
+        required: false
+        type: string
+        default: x86
+      extra_libs:
+        required: false
+        type: string
+        default: kernel32.lib
+      cmake_root:
+        description: If set, run cmake instead of direct cl.exe (alternative path)
+        required: false
+        type: string
+        default: ''
+      artifact_name:
+        required: false
+        type: string
+        default: proxy-dll
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ inputs.arch }}
+      - name: Build (cl.exe path)
+        if: inputs.cmake_root == ''
+        working-directory: ${{ inputs.proxy_dir }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sources = "${{ inputs.sources }}".Trim() -split '\s+' | Where-Object { $_ }
+          $objs = @()
+          foreach ($src in $sources) {
+            Write-Host "==> Compiling $src"
+            & cl.exe /nologo /O2 /Oi /fp:fast /GL /GS- /W3 /Zl /c /D WIN32 /D NDEBUG $src
+            if ($LASTEXITCODE -ne 0) { throw "Compile failed for $src (exit $LASTEXITCODE)" }
+            $objs += "$([System.IO.Path]::GetFileNameWithoutExtension($src)).obj"
+          }
+          Write-Host "==> Linking $($objs -join ' ') -> ${{ inputs.output_name }}"
+          $linkArgs = @(
+            '/nologo','/DLL','/NODEFAULTLIB','/LTCG',
+            '/ENTRY:_DllMainCRTStartup@12',
+            "/DEF:${{ inputs.def_file }}",
+            "/OUT:${{ inputs.output_name }}"
+          ) + $objs + ("${{ inputs.extra_libs }}".Trim() -split '\s+' | Where-Object { $_ })
+          & link.exe @linkArgs
+          if ($LASTEXITCODE -ne 0) { throw "Link failed (exit $LASTEXITCODE)" }
+      - name: Build (cmake path)
+        if: inputs.cmake_root != ''
+        working-directory: ${{ inputs.cmake_root }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vsArch = if ('${{ inputs.arch }}' -eq 'x64') { 'x64' } else { 'Win32' }
+          cmake -S . -B build -A $vsArch
+          cmake --build build --config Release
+      - name: Verify output
+        working-directory: ${{ inputs.proxy_dir }}
+        shell: pwsh
+        run: |
+          $out = "${{ inputs.output_name }}"
+          if (Test-Path $out) {
+            Write-Host "Built $out ($((Get-Item $out).Length) bytes)"
+          } elseif (Test-Path "build/Release/$out") {
+            Write-Host "Built build/Release/$out"
+          } else {
+            throw "Output $out not found"
+          }
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: |
+            ${{ inputs.proxy_dir }}/${{ inputs.output_name }}
+            ${{ inputs.proxy_dir }}/build/Release/${{ inputs.output_name }}
+          if-no-files-found: warn

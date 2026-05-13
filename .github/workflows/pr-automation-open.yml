@@ -1,0 +1,11 @@
+name: PR Automation - Open PR on Push
+
+on:
+  push:
+    branches-ignore: [main]
+  workflow_dispatch:
+
+jobs:
+  call:
+    uses: ./.github/workflows/_auto-open-pr.yml
+    secrets: inherit
