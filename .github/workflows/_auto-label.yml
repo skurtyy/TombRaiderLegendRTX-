@@ -21,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
+      - uses: actions/checkout@v4
       - name: Sync Labels
         env:
           GH_TOKEN: ${{ secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
