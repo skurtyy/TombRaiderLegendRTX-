@@ -29,7 +29,13 @@ Build 079 log shows 579 SHORT4 vs 21 FLOAT3 draws per frame. Lara is the dominan
 
 This Remix setting is documented in the reference (`docs/reference/rtx-conf-reference.md:31`, `docs/reference/hash-stability.md:87`) but has NEVER been added to rtx.conf. It rounds vertex positions before generation hashing. Adding `rtx.geometryHashGenerationRoundPosTo = 0.01` could absorb skinned mesh position jitter in the generation hash without any proxy changes. It won't help if the problem is asset hash drift (since asset hash uses model-space positions under vertex capture), but it's a 30-second config test.
 
-### 4. Anti-Culling Config Drift Between Documentation and rtx.conf
+### 4. Skinned Hash Drift Is Almost Certainly Generation-Hash Only (NEW EVIDENCE)
+
+dxvk-remix source confirms `SkinningData::computeHash()` produces a `boneHash` separate from the geometry asset hash. The asset hash is controlled by `geometryAssetHashRuleString` and **does not include blend weight/index data**. Since TRL's asset hash rule is `positions,indices,texcoords,geometrydescriptor`, and blend data is excluded, **the asset hash for skinned meshes should already be stable**. The observed drift in debug view 277 is almost certainly the generation hash flickering — which is expected behavior for animated meshes.
+
+**This may close the skinned hash drift issue entirely.** The user just needs to confirm they're looking at the generation hash view (composite 2), not the asset hash view (composite 1).
+
+### 5. Anti-Culling Config Drift Between Documentation and rtx.conf
 
 The task prompt states anti-culling is active (`enable = True`, `fovScale=2`, `farPlaneScale=10`, `numObjectsToKeep=10000`). The actual rtx.conf has `enable = False` with `numObjectsToKeep = 1000`. This mismatch suggests the task prompt's "Active Config" section is stale. The proxy's own draw cache handles anti-culling instead. No action needed, but the task prompt should be updated.
 
@@ -116,13 +122,32 @@ No other config changes recommended until fresh capture resolves the hash blocke
 
 ---
 
-## Community Intel
+## Community Intel (2026-05-13)
 
-Web research pending (agent running in background). Previous check (April 28):
-- RTX Remix 1.3.6/1.4.2: No hash stability or anti-culling changes
-- dxvk-remix: No vertex capture or hash rule changes in March-April 2026
-- TRLAU-Menu-Hook: No new commits
-- cdcEngine: No new commits since Dec 2024
+### dxvk-remix — Critical Skinning Fix (May 6, 2026)
+
+**Commit `95a5ecb` — `[REMIX-5347]` Fix crashes with too many bones or invalid blend weights on skinned meshes.** The fixed-size `m_stagedBones` vector (hard cap 256x256) was replaced with a dynamic `SkinningMatrixPool`. A second fix adds graceful handling for skinned meshes arriving without a blend weight buffer — previously crashed/asserted, now logs warning and returns early.
+
+**Direct relevance to TRL:** The null-VS FLOAT3 path sends skinned draws without valid blend weight buffers. This was a live crash path in older Remix builds. **Update to a dxvk-remix build after May 6, 2026.**
+
+### dxvk-remix — Asset Hash Does NOT Include Blend Data (confirmed from source)
+
+`SkinningData::computeHash()` produces a `boneHash` that is **separate from the geometry asset hash**. The asset hash is controlled by `geometryAssetHashRuleString` which does not include bone data. This means: **BLENDWEIGHT/BLENDINDICES changing frame-to-frame do NOT affect the asset hash — only the generation hash.** This strongly supports hypothesis #2 (user is seeing generation hash drift, which is expected and not a bug).
+
+### RTX Remix Issues
+
+- **#528 — Anti-culling geometry deterioration** (Sonic Adventure DX): Open, unresolved. Progressive corruption when anti-culling enabled. Confirms the proxy's in-engine NOP approach is correct — do NOT switch to Remix-side anti-culling.
+- **#775 — Partially skinned mesh seams**: Closed Apr 30, 2026. Fix for HW/SW skinning strip boundaries. Not directly relevant to TRL.
+
+### TRLAU-Menu-Hook v2.5 (Feb 28, 2026)
+
+"Fix crash with next generation graphics in Legend" — addresses TRL's D3D shader 3.0 path. The proxy already strips PUREDEVICE (build 076). Worth investigating whether v2.5 patches a different address that should be added to `TRL_ApplyMemoryPatches`.
+
+### cdcEngine — SceneLayer::s_enabled Confirmed
+
+`SceneLayer::s_enabled` (static bool) controls scene traversal. Its address in `trl.exe` could provide another culling layer toggle. Find via `datarefs.py` searching for the `SceneLayer::Render` call site with a `test byte ptr [addr], 1` guard pattern.
+
+### cdcEngine — No New Commits (still Dec 2024)
 
 ---
 
