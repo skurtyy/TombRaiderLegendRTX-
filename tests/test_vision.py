@@ -98,3 +98,47 @@ def test_decide_action(mock_call):
     assert action["action"] == "key"
     assert action["args"]["name"] == "RETURN"
     assert action["reasoning"] == "select new game"
+
+def test_save_temp_image_empty():
+    image_bytes = b""
+    path = _save_temp_image(image_bytes)
+
+    try:
+        assert os.path.exists(path)
+        assert path.endswith(".jpg")
+        assert "gamepilot_" in path
+
+        with open(path, "rb") as f:
+            assert f.read() == image_bytes
+    finally:
+        if os.path.exists(path):
+            os.unlink(path)
+
+def test_save_temp_image_multiple():
+    image_bytes1 = b"image-1"
+    image_bytes2 = b"image-2"
+
+    path1 = _save_temp_image(image_bytes1)
+    path2 = _save_temp_image(image_bytes2)
+
+    try:
+        assert path1 != path2
+        assert os.path.exists(path1)
+        assert os.path.exists(path2)
+
+        with open(path1, "rb") as f:
+            assert f.read() == image_bytes1
+        with open(path2, "rb") as f:
+            assert f.read() == image_bytes2
+    finally:
+        if os.path.exists(path1):
+            os.unlink(path1)
+        if os.path.exists(path2):
+            os.unlink(path2)
+
+@patch("os.write")
+def test_save_temp_image_os_error(mock_write):
+    mock_write.side_effect = OSError("Disk full")
+
+    with pytest.raises(OSError, match="Disk full"):
+        _save_temp_image(b"fake-image")
