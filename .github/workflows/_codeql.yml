@@ -32,10 +32,16 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
+          # build-mode is supported in v3 since 2024. Let's add it back.
       - name: Autobuild
         if: matrix.language == 'cpp'
         uses: github/codeql-action/autobuild@v3
       - name: Analyze
         uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+          upload: false
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
         with:
           category: "/language:${{ matrix.language }}"
