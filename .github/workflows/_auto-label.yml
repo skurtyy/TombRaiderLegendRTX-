@@ -21,37 +21,26 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
-      - uses: peter-evans/create-or-update-labels@v4
-        with:
-          token: ${{ secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
-          labels: |
-            - name: ${{ inputs.automerge_label }}
-              color: 0E8A16
-              description: Auto-merge this PR
-            - name: dependencies
-              color: C2E0C6
-              description: Dependency updates
-            - name: cursor
-              color: 1D76DB
-              description: Changes from Cursor agent
-            - name: claude-review
-              color: 5319E7
-              description: Request a Claude code review
-            - name: auto-idea
-              color: FBCA04
-              description: Auto-generated idea from Claude
-            - name: upstream
-              color: B60205
-              description: Upstream dependency change
-            - name: risk-low
-              color: C2E0C6
-              description: Low risk change (auto-assessed)
-            - name: risk-med
-              color: FBCA04
-              description: Medium risk change (auto-assessed)
-            - name: risk-high
-              color: B60205
-              description: High risk change (auto-assessed)
+      - name: Create or Update Labels
+        env:
+          GH_TOKEN: ${{ secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          create_or_update() {
+            local name="$1"
+            local color="$2"
+            local desc="$3"
+            gh label create "$name" --color "$color" --description "$desc" --force --repo "${{ github.repository }}" || true
+          }
+          create_or_update "${{ inputs.automerge_label }}" "0E8A16" "Auto-merge this PR"
+          create_or_update "dependencies" "C2E0C6" "Dependency updates"
+          create_or_update "cursor" "1D76DB" "Changes from Cursor agent"
+          create_or_update "claude-review" "5319E7" "Request a Claude code review"
+          create_or_update "auto-idea" "FBCA04" "Auto-generated idea from Claude"
+          create_or_update "upstream" "B60205" "Upstream dependency change"
+          create_or_update "risk-low" "C2E0C6" "Low risk change (auto-assessed)"
+          create_or_update "risk-med" "FBCA04" "Medium risk change (auto-assessed)"
+          create_or_update "risk-high" "B60205" "High risk change (auto-assessed)"
 
   label:
     needs: sync-labels
