@@ -1,10 +1,11 @@
-🎯 **What:** The testing gap in `retools/pyghidra_backend.py` has been addressed. The module was previously at ~83% coverage with multiple untested functions including environment path setups, error handling for decompilation, and CLI execution.
+🧪 Add tests for _extract_json markdown failure paths
 
-📊 **Coverage:**
-* Added tests for `is_analyzed` to correctly check for empty representations (`.rep` dir empty or missing).
-* Added tests for `_ensure_java_env` and `_ensure_ghidra_env` to verify proper detection and assignment of `JAVA_HOME` and `GHIDRA_INSTALL_DIR`.
-* Added test for `_import_pyghidra` failing via `ImportError`.
-* Added tests for `decompile` error paths (`pyghidra` missing, `GHIDRA_INSTALL_DIR` missing, and non-analyzed project).
-* Added execution tests for the CLI (`__main__` entry point) via `runpy`.
+🎯 **What:** The testing gap addressed
+This adds tests covering the markdown failure paths in `_extract_json`, specifically what happens when an invalid markdown JSON block is supplied, or when an invalid JSON markdown block is supplied but there is a fallback to the next block which is valid.
 
-✨ **Result:** The `retools/pyghidra_backend.py` module now has 100% test coverage, and its correctness has been comprehensively verified without introducing regressions.
+📊 **Coverage:** What scenarios are now tested
+- Handling of an invalid json block markdown format.
+- Fallback loop handling in `_extract_json` to correctly jump to the next code block when `json.loads` fails on the current code block.
+
+✨ **Result:** The improvement in test coverage
+The test coverage of `gamepilot/vision.py` went from 79% to 81%, and the `test_vision.py` module maintains 100% test coverage.
