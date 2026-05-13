@@ -194,6 +194,8 @@ extern void log_floats_dec(const char *prefix, float *data, unsigned int count);
 
 /* VP inverse cache: only recompute when camera moves more than this */
 #define VP_CHANGE_THRESHOLD     1e-4f
+/* H4 View/Proj lock tolerance: absorbs sub-pixel camera jitter between frames */
+#define H4_VP_LOCK_THRESHOLD    1.5e-2f
 /* World matrix quantization grid */
 #define WORLD_QUANT_GRID        1e-3f
 /* Screen-space quad detection: WVP vs Proj tolerance */
@@ -751,6 +753,9 @@ typedef struct WrappedDevice {
     float savedWorld[16];
     float savedView[16];
     float savedProj[16];
+    float vpLockView[16];   /* locked View matrix used to absorb camera jitter */
+    float vpLockProj[16];   /* locked Projection matrix used to absorb camera jitter */
+    int vpLockValid;        /* 1 once vpLockView/vpLockProj hold a valid snapshot */
 
     /* Last *applied* transforms (cache of values pushed via SetTransform).
      * Used to skip redundant SetTransform calls when the matrix is unchanged
@@ -1887,6 +1892,7 @@ static void TRL_OnLevelSceneDetected(WrappedDevice *self) {
     self->skyWarmupStartScene = 0;
     self->vpInverseValid = 0;
     self->proj3DCached = 0;
+    self->vpLockValid = 0;
     self->postLatchSceneLogsRemaining = 30;
     SkyIso_Clear(self);
     PinnedDraw_ReleaseAll(self);
@@ -2237,6 +2243,23 @@ static void TRL_ApplyTransformOverrides(WrappedDevice *self) {
     for (i = 0; i < 16; i++) {
         view[i] = gameView[i];
         proj[i] = gameProj[i];
+    }
+
+    /* H4 fix: lock View/Proj across frames to absorb sub-pixel camera jitter
+     * TRL updates the raw View/Proj matrices in game memory every frame with
+     * small (~0.001..0.009) deltas even when the player is idle. Without the
+     * lock, Remix sees a different W*V*P composite every frame and re-hashes
+     * geometry under rtx.geometryGenerationHashRuleString, producing per-frame
+     * position jitter (earthquake) and unwelded-looking triangle seams. */
+    if (self->vpLockValid &&
+        !mat4_changed(view, self->vpLockView, H4_VP_LOCK_THRESHOLD) &&
+        !mat4_changed(proj, self->vpLockProj, H4_VP_LOCK_THRESHOLD)) {
+        memcpy(view, self->vpLockView, 64);
+        memcpy(proj, self->vpLockProj, 64);
+    } else {
+        memcpy(self->vpLockView, view, 64);
+        memcpy(self->vpLockProj, proj, 64);
+        self->vpLockValid = 1;
     }
 
     /* Cache the first valid 3D projection for quad detection.
@@ -3237,6 +3260,7 @@ static int __stdcall WD_Reset(WrappedDevice *self, void *pPresentParams) {
     self->psConstDirty = 0;
     self->ffpActive = 0;
     self->vpInverseValid = 0;
+    self->vpLockValid = 0;
     TRL_ResetTexture0AnimationState(self);
     SkyIso_Clear(self);
     /* Stripped declarations are device resources — release before Reset */
@@ -5353,6 +5377,7 @@ WrappedDevice* WrappedDevice_Create(void *pRealDevice) {
     w->curDeclTexcoordOff = 0;
     w->vpInverseValid = 0;
     w->proj3DCached = 0;
+    w->vpLockValid = 0;
     w->transformOverrideActive = 0;
     w->memoryPatchesApplied = 0;
     w->diagMemLogged = 0;
@@ -5462,3 +5487,4 @@ WrappedDevice* WrappedDevice_Create(void *pRealDevice) {
 
     return w;
 }
+
