@@ -1,4 +1,6 @@
-name: Reusable - Auto Label Sync
+import sys
+
+content = """name: Reusable - Auto Label Sync
 
 on:
   workflow_call:
@@ -81,3 +83,7 @@ jobs:
         with:
           github_token: ${{ secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
           labels: ${{ inputs.automerge_label }}
+"""
+
+with open(".github/workflows/_auto-label.yml", "w") as f:
+    f.write(content)
