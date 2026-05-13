@@ -21,58 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
-      - uses: peter-evans/create-or-update-labels@v4
+      - uses: actions/checkout@v4
+      - uses: EndBug/label-sync@v2
         with:
+          config-file: .github/labels.yml
           token: ${{ secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
-          labels: |
-            - name: ${{ inputs.automerge_label }}
-              color: 0E8A16
-              description: Auto-merge this PR
-            - name: dependencies
-              color: C2E0C6
-              description: Dependency updates
-            - name: cursor
-              color: 1D76DB
-              description: Changes from Cursor agent
-            - name: claude-review
-              color: 5319E7
-              description: Request a Claude code review
-            - name: auto-idea
-              color: FBCA04
-              description: Auto-generated idea from Claude
-            - name: upstream
-              color: B60205
-              description: Upstream dependency change
-            - name: risk-low
-              color: C2E0C6
-              description: Low risk change (auto-assessed)
-            - name: risk-med
-              color: FBCA04
-              description: Medium risk change (auto-assessed)
-            - name: risk-high
-              color: B60205
-              description: High risk change (auto-assessed)
-
-  label:
-    needs: sync-labels
-    runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository
-    steps:
-      - name: Label Dependabot
-        if: ${{ github.actor == 'dependabot[bot]' }}
-        uses: actions-ecosystem/action-add-labels@v1
-        with:
-          github_token: ${{ secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
-          labels: ${{ inputs.automerge_label }}, dependencies
-      - name: Label Cursor branches
-        if: ${{ startsWith(github.head_ref || '', 'cursor/') }}
-        uses: actions-ecosystem/action-add-labels@v1
-        with:
-          github_token: ${{ secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
-          labels: ${{ inputs.automerge_label }}, cursor
-      - name: Label Claude branches
-        if: ${{ startsWith(github.head_ref || '', 'claude/') }}
-        uses: actions-ecosystem/action-add-labels@v1
-        with:
-          github_token: ${{ secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
-          labels: ${{ inputs.automerge_label }}
