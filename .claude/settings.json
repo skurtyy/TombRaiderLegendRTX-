@@ -4,8 +4,37 @@
       "Bash(python -m retools*)",
       "Bash(python -m livetools*)",
       "Bash(python -m graphics*)",
+      "Bash(python -m autopatch*)",
       "Bash(python verify_install.py)",
-      "Bash(python rtx_remix_tools/*)"
+      "Bash(python rtx_remix_tools/*)",
+      "Bash(python patches/*)",
+      "Bash(python automation/*)",
+      "Bash(python scripts/*)",
+      "Bash(python gamepilot/*)",
+      "Bash(pytest*)",
+      "Bash(pytest tests*)",
+      "Bash(pytest tests_trl*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git status*)",
+      "Bash(git show*)",
+      "Bash(git add*)",
+      "Bash(find . -name*)",
+      "Bash(ls*)",
+      "Bash(dir*)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '\\n========== SESSION ENDING ==========\\nBefore closing, ensure you have:\\n  1. Updated CHANGELOG.md (use changelog-keeper agent)\\n  2. Updated docs/status/WHITEBOARD.md if status changed\\n  3. Archived build folder to TRL tests/ with SUMMARY.md\\n  4. Pushed all changes (git add -A && git commit && git push)\\n  5. If new dead end found, updated CLAUDE.md Dead Ends table\\n=====================================\\n'"
+          }
+        ]
+      }
     ]
   }
 }
