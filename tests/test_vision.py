@@ -98,3 +98,30 @@ def test_decide_action(mock_call):
     assert action["action"] == "key"
     assert action["args"]["name"] == "RETURN"
     assert action["reasoning"] == "select new game"
+
+@patch("os.close")
+@patch("os.write")
+@patch("tempfile.mkstemp")
+def test_save_temp_image_write_error(mock_mkstemp, mock_write, mock_close):
+    mock_mkstemp.return_value = (12345, "/tmp/fake_path.jpg")
+    mock_write.side_effect = OSError("Disk full")
+
+    with pytest.raises(OSError, match="Disk full"):
+        _save_temp_image(b"data")
+
+    mock_close.assert_called_once_with(12345)
+
+def test_save_temp_image_empty_bytes():
+    image_bytes = b""
+    path = _save_temp_image(image_bytes)
+
+    try:
+        assert os.path.exists(path)
+        assert path.endswith(".jpg")
+        assert "gamepilot_" in path
+
+        with open(path, "rb") as f:
+            assert f.read() == image_bytes
+    finally:
+        if os.path.exists(path):
+            os.unlink(path)

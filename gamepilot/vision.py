@@ -108,8 +108,10 @@ def _save_temp_image(image_bytes: bytes) -> str:
     and the OS will clean them up eventually.
     """
     fd, path = tempfile.mkstemp(suffix=".jpg", prefix="gamepilot_")
-    os.write(fd, image_bytes)
-    os.close(fd)
+    try:
+        os.write(fd, image_bytes)
+    finally:
+        os.close(fd)
     return path
 
 

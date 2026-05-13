@@ -16,6 +16,12 @@ on:
 
 jobs:
   analyze:
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Disabled because default setup is enabled'
+
+  analyze_old:
     name: CodeQL (${{ matrix.language }})
     runs-on: ${{ matrix.language == 'cpp' && 'windows-latest' || 'ubuntu-latest' }}
     permissions:
