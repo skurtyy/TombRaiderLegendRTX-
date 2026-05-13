@@ -25,6 +25,8 @@ permissions:
 jobs:
   automerge:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: Auto-merge if labeled
         uses: pascalgn/automerge-action@v0.16.3

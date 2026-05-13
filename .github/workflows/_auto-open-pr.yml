@@ -22,6 +22,8 @@ permissions:
 jobs:
   propose-pr:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     if: github.repository_owner == github.actor || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
