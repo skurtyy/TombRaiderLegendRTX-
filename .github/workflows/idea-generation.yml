@@ -12,5 +12,5 @@ jobs:
     secrets: inherit
     with:
       whiteboard_file: WHITEBOARD.md
-      claude_model: claude-opus-4-7
+      claude_model: claude-3-opus-latest
       max_tokens: 4096
