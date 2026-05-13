@@ -30,7 +30,18 @@ jobs:
 
       - run: pip install requests
 
+      - name: Check Linear setup
+        id: linear_setup
+        run: |
+          if [ ! -f linear/config.json ]; then
+            echo "::notice::Skipping Linear sync because linear/config.json is missing. Run linear/setup_linear.py and commit linear/config.json."
+            echo "config_ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "config_ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Sync to Linear
+        if: steps.linear_setup.outputs.config_ready == 'true'
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
         run: python linear/sync.py ${{ github.event.inputs.mode || 'sync' }}
