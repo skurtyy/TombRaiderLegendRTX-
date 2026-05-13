@@ -32,7 +32,6 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
-          # build-mode removed
       - name: Autobuild
         if: matrix.language == 'cpp'
         uses: github/codeql-action/autobuild@v4
