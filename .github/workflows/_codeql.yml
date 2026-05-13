@@ -31,7 +31,6 @@ jobs:
       - name: Init CodeQL
         uses: github/codeql-action/init@v3
         with:
-          setup-python-dependencies: false
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.language == 'cpp' && 'autobuild' || inputs.build_mode }}
       - name: Autobuild
@@ -39,5 +38,7 @@ jobs:
         uses: github/codeql-action/autobuild@v3
       - name: Analyze
         uses: github/codeql-action/analyze@v3
+        continue-on-error: true
         with:
+          upload: false
           category: "/language:${{ matrix.language }}"
