@@ -1,0 +1,11 @@
+name: PR Risk Score
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+
+jobs:
+  call:
+    if: github.event.pull_request.draft == false
+    uses: ./.github/workflows/_claude-pr-risk.yml
+    secrets: inherit
