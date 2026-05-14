@@ -21,15 +21,13 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent
-GAME_DIR = REPO_ROOT / "Tomb Raider Legend"
-GAME_EXE = GAME_DIR / "trl.exe"
-LAUNCHER = GAME_DIR / "NvRemixLauncher32.exe"
+sys.path.insert(0, str(REPO_ROOT))
+
+from config import GAME_DIR, GAME_EXE, LAUNCHER  # noqa: E402
 
 SAVE_DIR = Path.home() / "Documents" / "Tomb Raider - Legend"
 AUTOSAVE = SAVE_DIR / "autosave.dat"
 CHECKPOINT = SCRIPT_DIR / "peru_checkpoint.dat"
-
-sys.path.insert(0, str(REPO_ROOT))
 
 
 def ensure_save_dir():
@@ -39,6 +37,20 @@ def ensure_save_dir():
 
 def has_checkpoint():
     return CHECKPOINT.exists()
+
+
+def choose_launch_route(force_continue: bool = False) -> str:
+    """Pick the fastest viable path into Peru gameplay.
+
+    Returns one of:
+      'continue' — restore checkpoint and use Continue from main menu
+      'newgame'  — full New Game -> Peru flow (captures checkpoint on first run)
+    """
+    if force_continue and has_checkpoint():
+        return "continue"
+    if has_checkpoint() and AUTOSAVE.exists():
+        return "continue"
+    return "newgame"
 
 
 def restore_checkpoint():
@@ -156,12 +168,23 @@ def launch_game():
     return hwnd
 
 
-def navigate_to_peru(hwnd):
+def navigate_to_peru(hwnd, route: str = "newgame"):
     """From main menu, navigate to Peru and skip the cutscene.
 
-    Uses the user-recorded menu_nav sequence.
+    Args:
+        hwnd: Game window handle.
+        route: 'continue' uses Continue from main menu (requires restored
+            autosave); 'newgame' walks the full New Game -> Peru macro.
     """
     from livetools.gamectl import send_keys
+
+    if route == "continue" and has_checkpoint():
+        restore_checkpoint()
+        print("Navigating to Peru via Continue (checkpoint)...")
+        send_keys(hwnd, "WAIT:5850 RETURN WAIT:9000", delay_ms=0)
+        time.sleep(3)
+        print("Peru loaded -- ready to play")
+        return
 
     print("Navigating to Peru (recorded macro)...")
     send_keys(hwnd, "WAIT:5850 ESCAPE WAIT:6250 RETURN WAIT:2650 DOWN WAIT:1900 RETURN WAIT:1550 RETURN WAIT:6400 ESCAPE WAIT:1550 UP WAIT:1550 RETURN", delay_ms=0)
@@ -169,7 +192,6 @@ def navigate_to_peru(hwnd):
     time.sleep(3)
     print("Peru loaded -- ready to play")
 
-    # Capture autosave as checkpoint for future fast launches
     capture_checkpoint()
 
 

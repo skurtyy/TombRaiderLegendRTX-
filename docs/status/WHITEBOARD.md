@@ -1,7 +1,49 @@
 # TRL RTX Remix — Live Whiteboard
 
-**Updated:** 2026-05-11 · **Builds:** 001–079 (003–015, 034, 043, 048–063 not preserved)
+**Updated:** 2026-05-14 · **Builds:** 001–079 (003–015, 034, 043, 048–063 not preserved)
 **Goal:** Stable hashes (including skinned characters), full geometry submission, refreshed anchor hashes, and **maximum proxy CPU efficiency for the RTX 5090 path-traced runtime**
+
+---
+
+## Session 2026-05-14 — Test-Harness Repair + Build 080 Plan (PENDING)
+
+Test pipeline (`run.py test-hash --build`) was broken on this branch and never produced a build 080 run. Repairs applied:
+
+| Issue | Fix | Location |
+|-------|-----|----------|
+| `cmd /c "build.bat"` fails under Windows policy (NoDefaultCurrentDirectoryInExePath) | Prefix with `.\` for explicit relative-path execution | [patches/TombRaiderLegend/run.py:247](../../patches/TombRaiderLegend/run.py#L247) |
+| `launcher.choose_launch_route` missing — referenced by run.py | Added stub returning `'continue'` if checkpoint+autosave else `'newgame'` | [patches/TombRaiderLegend/launcher.py:43-56](../../patches/TombRaiderLegend/launcher.py#L43-L56) |
+| `navigate_to_peru(hwnd, route=...)` — `route` kwarg unsupported | Added kwarg; `'continue'` route restores checkpoint then sends short macro | [patches/TombRaiderLegend/launcher.py:178-202](../../patches/TombRaiderLegend/launcher.py#L178-L202) |
+| Launcher.py had own `GAME_DIR = REPO_ROOT / "Tomb Raider Legend"`, ignoring `TRL_GAME_DIR` env var | Import from `config.py` instead (so both run.py and launcher.py share the same install path) | [patches/TombRaiderLegend/launcher.py:23-26](../../patches/TombRaiderLegend/launcher.py#L23-L26) |
+
+**Active game install (confirmed by mtime):** `C:\Users\skurtyy\Documents\GitHub\AlmightyBackups\NightRaven1\Vibe-Reverse-Engineering-Claude\Tomb Raider Legend\` — `ffp_proxy.log` mtime 2026-05-14 02:51 (today). Set `TRL_GAME_DIR` to this path before running `run.py test-hash --build`.
+
+**Static-analyzer log for build 079** generated and added to the build folder: [`static_analysis_log.md`](../../TRL%20tests/build-079-normalize-skinned-decl-FAIL-shader-route-mismatch/static_analysis_log.md). Key findings:
+
+- All 23 documented patch sites verified — every documented shape still fits, proxy runtime patches will land cleanly. **No binary drift.**
+- Skinned-submit dominant function = `0x006133D7`. It calls `Renderer_SetVertexShader(piVar4, shader)` **before** the DIP — that's what makes Remix see a non-null VS for Lara and trips the proxy's shader route. **Confirms build 079's diagnosis at the binary level.**
+- One MISS-static: 0xF12016 reads 0 in the static dump (post-sector loop enable). Recheck whether the proxy stamps this at runtime — minor, world geometry is already stable.
+- `find_skinning.py` returns "none detected" because TRL uses pure VS-skinning with no FFP world-matrix palette or `D3DRS_INDEXEDVERTEXBLENDENABLE` — the script's "set Enabled=0" suggestion is wrong for this binary.
+
+**Build 080 — BUILT, NOT YET TESTED. Test deferred (pending fresh Remix capture for lights criterion).**
+
+Source merged + DLL compiled at [`patches/TombRaiderLegend/proxy/d3d9.dll`](../../patches/TombRaiderLegend/proxy/d3d9.dll) (50,688 bytes). Static-analyzer subagent did the merge against [`d3d9_device.c`](../../patches/TombRaiderLegend/proxy/d3d9_device.c) — preserving H4 VP-lock, adding the build-079 plumbing (`BuildSkinnedNormalizedDecl`, `curNormalizedSkinnedDecl`, INI toggle, always-on `SKINNED decl=` log), and **the new build-080 piece: shader-route DIP wrapped with `swapShaderDecl` sandwich** (mirror of the null-VS `swapNormDecl` sandwich). Backup of pre-merge state at [`patches/TombRaiderLegend/backups/2026-05-14_build080_skinned-decl-shader-route/`](../../patches/TombRaiderLegend/backups/2026-05-14_build080_skinned-decl-shader-route/).
+
+Per the static analysis section 2c, option (b) was the correct fix path:
+
+- Port the existing build-079 decl-strip plumbing into the current source (preserving H4 VP-lock). ✅
+- **Extend the decl-swap sandwich to wrap the shader-route DIP call**, not just the null-VS path. ✅ Both branches now wrap. Shader route fires for Lara when `rtx.useVertexCapture = True`; null-VS route fires for static FFP. INI toggle `[FFP] NormalizeSkinnedDecl=1` controls both.
+
+Build 080 is purely additive: preserves Lara's visual skinning AND fixes her asset hash.
+
+**Why test deferred:** The hash-stability test PASS criterion (`run.py:evaluate_release_gate`) requires `lights present in every clean shot` — and stage lights cannot appear until the 5 anchor mesh hashes in `mod.usda` are refreshed via a fresh Remix Toolkit capture at the Peru stage. That is the one remaining true blocker, and it is human-in-loop. Running build 080 now would produce FAIL on lights regardless of whether the shader-route fix works.
+
+**Next actions on resume:**
+
+1. Manually launch via NvRemixLauncher32 → Peru stage → trigger Toolkit capture → extract 5 building mesh hashes → update `mod.usda` → close
+2. `TRL_GAME_DIR="$AlmightyBackupsPath" python patches/TombRaiderLegend/run.py test-hash --build`
+3. Inspect `ffp_proxy.log` for `SKINNED decl=` entries (build 080 logs first 8 unique skinned decls). Confirms whether Lara is FLOAT3 or SHORT4. The decl-swap sandwich will engage either way; the log confirms which branch.
+4. Compare hash-debug screenshots: Lara should now keep the same color across the camera pan.
 
 ---
 

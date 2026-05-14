@@ -244,7 +244,7 @@ def build_proxy_bundle(proxy_dir=PROXY_DIR, proxy_ini_path=None,
 
     print("\n=== Building proxy ===")
     r = subprocess.run(
-        ["cmd.exe", "/c", build_bat.name],
+        ["cmd.exe", "/c", f".\\{build_bat.name}"],
         capture_output=True,
         text=True,
         shell=False,

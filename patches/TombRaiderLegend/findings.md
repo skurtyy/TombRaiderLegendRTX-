@@ -4123,3 +4123,65 @@ This preserves the anti-culling benefit (stale bounds keep sectors render-eligib
 1. **Confirm stale flags**: Before chapter 2 load, `livetools mem read 0x1158300 0x2E0` to dump all 8 sector entries. Compare against a fresh dump after chapter 4.
 2. **Selective un-NOP**: Use `livetools mem write 0x46D202 896806` and `livetools mem write 0x46D205 89680A` to restore flag clears at runtime, then attempt chapter 2 load.
 3. **Breakpoint on sector flags**: `livetools bp add 0x46D262` to catch the portal walk reading stale flags.
+
+---
+
+## Build 079 — Patch-Integrity + Skinned-Submit Path Analysis — 2026-05-14 02:39 UTC
+
+### Summary
+Verified all 23 documented patch sites against the canonical static dump `trl_dump_SCY.exe`. No drift detected — 13 already-baked static patches confirmed (incl. 0x407150 RET, all 7 cull-jump NOPs, Light_VisibilityTest, frustum threshold = -1e30, cull-mode globals = 1, 6 NOP-NOP locations), 11 PASS-runtime (original instruction shape correct so proxy NOPs land cleanly), 1 anomaly (0xF12016 = 0 in dump; verify whether proxy stamps it). Located the TRL skinned-submit path: 3 SetVertexShaderConstantF call sites push StartRegister=0x30 (= c48, bone palette), specifically 0x6133D7 (dominant submit), 0x60ECFB and 0x60EBF0 (bone uploader). The bone uploader transposes 4x4 → 4x3 row-major and calls SetVS(c48, base, boneCount*3). The shader-route mismatch in build 079 is rooted in the fact that 0x6133D7 binds a non-null VS via Renderer_SetVertexShader before DIP — triggering the proxy's shader route for Lara even though the FFP decl-strip fix is wired only on the null-VS route.
+
+### Key Addresses
+| Address | Description |
+|---------|-------------|
+| 0x407150 | SceneTraversal_CullAndSubmit — pure stub (RET); confirmed in dump |
+| 0xECBA40 | Renderer_SetVSConstantF_Wrapper — 34 callers; main entry to D3D9 vtable[0x178] |
+| 0x60EBF0 | Bone-palette uploader — transposes 4x3 rows into 0x1310a68, SetVS(c48, base, boneCount*3) |
+| 0x6133D7 | Dominant skinned-mesh submit dispatch — c48 upload + SetVertexShader + DIP via vtable[0x148] |
+| 0x60ECFB | 2nd c48 SetVS call (inside 0x60EBF0) |
+| 0x1310a68 | Bone-matrix staging buffer (12 floats × N bones) |
+| 0x1392DD0 | Renderer module init flag (bit 0) — checked by 0x6132F0 |
+
+### Patch Integrity Result
+| Group | Status |
+|-------|--------|
+| Cull-jumps NOPs (7 sites, 0x4072BD..0x407B7B) | PASS — all NOPed in dump |
+| Function-entry RETs (0x407150) | PASS — baked in dump |
+| Conditional NOP overlays (0xEC6337, 0x46C194/19D, 0x60CE20) | PASS — baked |
+| Light_VisibilityTest stub (0x60B050) | PASS — `mov al,1; ret 4` |
+| Cull-mode globals (0xF2A0D4/D8/DC) | PASS — all =1 (D3DCULL_NONE) |
+| Frustum threshold (0xEFDD64) | PASS — already -1e30 in `.data` (not just runtime) |
+| Runtime-only patches (0x40C430, 0x40D2AC, 0x46B85A, 0x454AB0, 0x46B7F2, 0x40E30F, 0x40E3B0, 0x415C51, 0x60CDE2) | PASS-runtime — instruction shape correct, proxy patches land cleanly |
+| 0x10FC910 far clip global | PASS-runtime — engine default 130000.0f, proxy overwrites at runtime |
+| 0xF12016 post-sector enable | **MISS-static** — engine default `0` in dump; confirm proxy writes the `1` |
+
+### Skinning Pipeline Reconstruction
+Per CLAUDE.md VS layout: c0–c3=World, c8–c11=View, c12–c15=Projection, c48+=Skinning (3 regs/bone). Bone-palette uploader 0x60EBF0:
+- Mode 1 (standard skinning): copies bone matrices into 0x1310a68 as transposed 4x3 (12 floats/bone), uploads via SetVS(c48, base, count*3).
+- Mode 6 (precomputed pose): uploads `(*param_1 + 0xfca) * 0x10 + *(param_2 + 0x14)` block with count=`*(*(param_2 + 0x1c) + 0x6e) + 1`.
+- Shadow branch (when `param_3+0x580` flag set): also re-uploads SetVS(c0, ..., 8) and SetVS(c8, ..., 8) with shadow product matrices.
+
+Dominant submit 0x6133D7:
+- Top of function calls Renderer_SetVSConstantF_Wrapper(0x30, ...) for bone palette.
+- Dispatches on mode value at `*(*(*(esi+0x10)+4) * 0x90 + *(esi+0xc+0x20))`:
+  - mode 0x40: env-mapped skinned (SetVertexShader + BlendMode 3)
+  - mode 1: standard skinned + BlendMode select
+  - mode 4: alpha-blended skinned
+  - mode 8: another skinned variant
+- All paths bind a vertex shader via `Renderer_SetVertexShader(piVar4, shader)` — this is what causes the proxy's `Float3Route effective: shader` for Lara.
+
+### Why Build 079's Fix Didn't Engage
+`BuildSkinnedNormalizedDecl` strips BLENDWEIGHT/BLENDINDICES and wires the swap into `WD_DrawIndexedPrimitive`'s **null-VS path only** (lines 3651-3666). With `rtx.useVertexCapture=True`, skinned FLOAT3 draws route through lines 3644-3650 (shader path) — the original decl with skinning streams is forwarded to Remix. Asset-hash `geometrydescriptor` portion folds in the skinning decl elements → drift.
+
+### Recommended Next-Build Fix Options
+1. **Quick (build 080)**: New INI `[FFP] SkinnedFloat3Route=null_vs` that forces all skinned FLOAT3 draws onto the null-VS path. The existing decl-strip fix then engages. Tradeoff: Lara renders bind-pose through Remix.
+2. **Correct (build 081)**: Move the `SetVertexDeclaration(normalized)` + `DIP` + `SetVertexDeclaration(original)` sandwich into the shader-route branch (around lines 3644-3650). Preserves visual skinning AND stabilizes hash. Verify with a `livetools bp` on 0x6133D7 that Lara hits both routes correctly across frames.
+
+### Suggested Live Verification
+1. `livetools bp add 0x006133D7` + `bp add 0x0060EBF0` — confirm both fire on Lara walks.
+2. At 0x6133D7: `regs` + `mem read <bone_buffer> 0x180 --as float32` to dump the 4x3 bone block.
+3. `livetools trace 0x6133D7 --read [esi+0x24] [esi+0x10]` to log active decl and mesh-id at each Lara draw.
+4. Cross-reference with `ffp_proxy.log` `SKINNED decl=...` always-on lines to determine Lara's exact decl format (FLOAT3 vs SHORT4).
+5. Once decl is known: enable INI toggle `SkinnedFloat3Route=null_vs`, repeat hash-stability test, expect Lara's mesh-hash debug color to stop flickering.
+
+Full detail and patch-by-patch table: see `TRL tests/build-079-normalize-skinned-decl-FAIL-shader-route-mismatch/static_analysis_log.md`.
