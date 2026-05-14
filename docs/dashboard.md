@@ -1,6 +1,6 @@
 # skurtyyskirts ecosystem status
 
-_Generated 2026-05-13 14:52 UTC_
+_Generated 2026-05-14 14:32 UTC_
 
 | Repo | Last commit | Open PRs | Open issues | Latest release |
 |---|---|---|---|---|
@@ -8,12 +8,12 @@ _Generated 2026-05-13 14:52 UTC_
 | [HeavyRainRTX](https://github.com/skurtyyskirts/HeavyRainRTX) | {"message" | ? | ? | none |
 | [TombRaiderUnderworldRTX](https://github.com/skurtyyskirts/TombRaiderUnderworldRTX) | {"message" | ? | ? | none |
 | [StrangleholdRTX](https://github.com/skurtyyskirts/StrangleholdRTX) | {"message" | ? | ? | none |
-| [TombRaiderLegendRTX-](https://github.com/skurtyyskirts/TombRaiderLegendRTX-) | 2026-05-13 | 30 | 30 | none |
-| [Substance2Remix](https://github.com/skurtyyskirts/Substance2Remix) | 2026-05-13 | 30 | 0 | v0.5.0 |
+| [TombRaiderLegendRTX-](https://github.com/skurtyyskirts/TombRaiderLegendRTX-) | 2026-05-14 | 30 | 30 | none |
+| [Substance2Remix](https://github.com/skurtyyskirts/Substance2Remix) | 2026-05-14 | 30 | 0 | v0.5.0 |
 | [Substance2Duplicate](https://github.com/skurtyyskirts/Substance2Duplicate) | {"message" | ? | ? | none |
 | [LANoireRTX](https://github.com/skurtyyskirts/LANoireRTX) | {"message" | ? | ? | none |
 | [FEARRTX](https://github.com/skurtyyskirts/FEARRTX) | {"message" | ? | ? | none |
-| [InstaMAT2Remix](https://github.com/skurtyyskirts/InstaMAT2Remix) | 2026-05-13 | 0 | 0 | none |
+| [InstaMAT2Remix](https://github.com/skurtyyskirts/InstaMAT2Remix) | 2026-05-13 | 11 | 0 | none |
 
 ## Recent activity (last 14 days)
 
@@ -30,18 +30,18 @@ _Generated 2026-05-13 14:52 UTC_
 {"message":"Not Found","documentation_url":"https://docs.github.com/rest/commits/commits#list-commits","status":"404"}- (no access)
 
 ### TombRaiderLegendRTX-
-- [703d30a](https://github.com/skurtyyskirts/TombRaiderLegendRTX-/commit/703d30aed0bf6bc7ed97a16af08dadee223efd9f) Refactor label management in GitHub Actions workflow
-- [61e9d70](https://github.com/skurtyyskirts/TombRaiderLegendRTX-/commit/61e9d70b02a5737e5527a0d0a19c4b5bda0f41ad) Add Claude automation routines: agents, workflows, settings (#199)
-- [e311f10](https://github.com/skurtyyskirts/TombRaiderLegendRTX-/commit/e311f107840d378bf3765d27fe121a2821b0ee82) fix(ci): reusable-workflow review feedback + H4 VP lock restore (#201)
-- [4662f9d](https://github.com/skurtyyskirts/TombRaiderLegendRTX-/commit/4662f9dd85b95dcca3d98ac41a28cdcbf24ae481) Optimize GitHub Actions: reusable workflows + Claude automations + value-add features
-- [fcc8423](https://github.com/skurtyyskirts/TombRaiderLegendRTX-/commit/fcc84234412453d2d423be066730f46548486d2a) fix(proxy): build 079 — normalize skinned decl for Remix hash stability (FAIL: shader-route mismatch)
+- [3cc2cad](https://github.com/skurtyyskirts/TombRaiderLegendRTX-/commit/3cc2cadfe5983d468a67a87965503e4b388eeb2d) docs: log 2026-05-14 session in CHANGELOG
+- [e2ff7d1](https://github.com/skurtyyskirts/TombRaiderLegendRTX-/commit/e2ff7d12d3bfc7df824caf6f13523c956e7c9ba2) chore: remove ralph-loop state file (user wants testing on hold)
+- [2d74cfb](https://github.com/skurtyyskirts/TombRaiderLegendRTX-/commit/2d74cfb546d5c0169b8716f6c8e73d8163fdaa86) session 2026-05-14: test-harness fixes + build 080 source merge (untested)
+- [e051159](https://github.com/skurtyyskirts/TombRaiderLegendRTX-/commit/e051159137b70a578b5d2ed92da484837aa77f87) feat: deploy Claude agent fleet (subagents, hooks, workflows, commands)
+- [2200f5b](https://github.com/skurtyyskirts/TombRaiderLegendRTX-/commit/2200f5bdefb9bf7dcd1cfde3d0ffb572d50cbd4d) revert: idea-generation.yml back to claude-opus-4-7
 
 ### Substance2Remix
+- [dc8b694](https://github.com/skurtyyskirts/Substance2Remix/commit/dc8b694bd9fe3138a12326cc0136725828d4ad5b) fix: normalize model name (claude-sonnet-4-20250514->claude-sonnet-4-5) and remove duplicate CHANGELOG.md path trigger
+- [9877d65](https://github.com/skurtyyskirts/Substance2Remix/commit/9877d6518a4d994fae3682d6e1ed430b837d70ac) Add painter-api-compat-monitor Claude Code agent
 - [1078a5f](https://github.com/skurtyyskirts/Substance2Remix/commit/1078a5f45e88b4a42a282938cad8e3e113a9058e) chore: health check fix 05-13
 - [9261c96](https://github.com/skurtyyskirts/Substance2Remix/commit/9261c9682cd108288201acabb32e0d710bddce8e) 🧪 [testing improvement async_utils error path] (#74)
 - [a9e9c51](https://github.com/skurtyyskirts/Substance2Remix/commit/a9e9c516d474e741c146f57c70a545027f0ed9bb) 🧪 [testing improvement] Add tests for async_utils Worker class (#75)
-- [5adc402](https://github.com/skurtyyskirts/Substance2Remix/commit/5adc4024ac02ea9770bf4a53b3464f308ac5ca16) Add tests for blender_auto_unwrap.py (#78)
-- [15680ac](https://github.com/skurtyyskirts/Substance2Remix/commit/15680ac3acf5c010621fd4b5da6596934e2a77c0) test: cover update_textures_batch, get_material_textures, ingest fail-fast (#70)
 
 ### Substance2Duplicate
 {"message":"Not Found","documentation_url":"https://docs.github.com/rest/commits/commits#list-commits","status":"404"}- (no access)
