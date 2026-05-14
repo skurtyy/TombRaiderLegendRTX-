@@ -1,0 +1,112 @@
+name: Reusable - DX9 FFP Proxy Config Regression
+
+on:
+  workflow_call:
+    inputs:
+      baseline_path:
+        description: JSON file capturing last-known-good proxy config snapshot
+        required: false
+        type: string
+        default: .github/dx9-ffp-baseline.json
+      ini_path:
+        required: false
+        type: string
+        default: remix-comp-proxy.ini
+      renderer_path:
+        required: false
+        type: string
+        default: renderer.cpp
+      auto_seed_baseline:
+        description: If true and no baseline file exists, write one and exit success. Default false (fail with a clear message instead).
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  regression-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare against baseline
+        env:
+          BASELINE: ${{ inputs.baseline_path }}
+          INI: ${{ inputs.ini_path }}
+          RENDERER: ${{ inputs.renderer_path }}
+          AUTO_SEED: ${{ inputs.auto_seed_baseline }}
+        run: |
+          python <<'PYEOF'
+          import hashlib, json, os, re, sys
+          from pathlib import Path
+          baseline_p = Path(os.environ['BASELINE'])
+          ini_p = Path(os.environ['INI'])
+          rend_p = Path(os.environ['RENDERER'])
+          auto_seed = os.environ.get('AUTO_SEED','false').lower() == 'true'
+
+          if not ini_p.exists() and not rend_p.exists():
+              print(f'::warning::Neither INI ({ini_p}) nor renderer ({rend_p}) found; check the caller paths')
+              raise SystemExit(0)
+
+          current = {}
+          if ini_p.exists():
+              ini_text = ini_p.read_text(errors='replace')
+              current['ini_sha256'] = hashlib.sha256(ini_text.encode()).hexdigest()
+              pairs = {}
+              section = ''
+              for line in ini_text.splitlines():
+                  line = line.strip()
+                  if not line or line.startswith(('#',';')): continue
+                  m = re.match(r'\[(.+?)\]', line)
+                  if m:
+                      section = m.group(1); continue
+                  if '=' in line:
+                      k, v = (p.strip() for p in line.split('=',1))
+                      pairs[f'{section}.{k}' if section else k] = v
+              current['ini_keys'] = pairs
+          if rend_p.exists():
+              rend_text = rend_p.read_text(errors='replace')
+              vs_consts = sorted(set(re.findall(r'\bc(\d{1,3})\b', rend_text)))
+              current['vs_constants'] = vs_consts
+              current['renderer_sha256'] = hashlib.sha256(rend_text.encode()).hexdigest()
+
+          if not baseline_p.exists():
+              if auto_seed:
+                  baseline_p.parent.mkdir(parents=True, exist_ok=True)
+                  baseline_p.write_text(json.dumps(current, indent=2, sort_keys=True))
+                  print(f'::warning::Baseline seeded at {baseline_p}; commit it to enable real regression detection')
+                  raise SystemExit(0)
+              else:
+                  print(f'::error::Baseline file {baseline_p} not found.')
+                  print('Run this workflow once with auto_seed_baseline=true to produce the file, then commit it.')
+                  print('Snapshot that would be written:')
+                  print(json.dumps(current, indent=2, sort_keys=True))
+                  sys.exit(1)
+
+          baseline = json.loads(baseline_p.read_text())
+          diffs = []
+          if 'ini_sha256' in current and current['ini_sha256'] != baseline.get('ini_sha256'):
+              added = set(current.get('ini_keys',{})) - set(baseline.get('ini_keys',{}))
+              removed = set(baseline.get('ini_keys',{})) - set(current.get('ini_keys',{}))
+              changed = {k for k in set(current.get('ini_keys',{})) & set(baseline.get('ini_keys',{}))
+                         if current['ini_keys'][k] != baseline['ini_keys'][k]}
+              if added: diffs.append(f'INI keys added: {sorted(added)}')
+              if removed: diffs.append(f'INI keys removed: {sorted(removed)}')
+              if changed: diffs.append(f'INI values changed: {sorted(changed)}')
+          if 'vs_constants' in current and current['vs_constants'] != baseline.get('vs_constants'):
+              added = set(current['vs_constants']) - set(baseline.get('vs_constants',[]))
+              removed = set(baseline.get('vs_constants',[])) - set(current['vs_constants'])
+              if added: diffs.append(f'VS constants added: c{sorted(added)}')
+              if removed: diffs.append(f'VS constants removed: c{sorted(removed)}')
+
+          if diffs:
+              print('DX9 FFP regression flags:')
+              for d in diffs: print(' -', d)
+              if os.environ.get('GITHUB_EVENT_NAME') == 'pull_request':
+                  print('::warning::DX9-FFP config drift detected; reviewer must confirm')
+              if Path('.github/dx9-ffp-strict').exists():
+                  sys.exit(1)
+          else:
+              print('No DX9 FFP config drift detected')
+          PYEOF

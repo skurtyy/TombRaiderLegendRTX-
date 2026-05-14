@@ -1,0 +1,67 @@
+name: Cross-Repo Status Dashboard
+
+on:
+  schedule:
+    - cron: '0 12 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate dashboard
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPOS=(
+            "skurtyyskirts/ACBrotherhoodRTX"
+            "skurtyyskirts/HeavyRainRTX"
+            "skurtyyskirts/TombRaiderUnderworldRTX"
+            "skurtyyskirts/StrangleholdRTX"
+            "skurtyyskirts/TombRaiderLegendRTX-"
+            "skurtyyskirts/Substance2Remix"
+            "skurtyyskirts/Substance2Duplicate"
+            "skurtyyskirts/LANoireRTX"
+            "skurtyyskirts/FEARRTX"
+            "skurtyyskirts/InstaMAT2Remix"
+          )
+          mkdir -p docs
+          OUT=docs/dashboard.md
+          {
+            echo "# skurtyyskirts ecosystem status"
+            echo
+            echo "_Generated $(date -u '+%Y-%m-%d %H:%M UTC')_"
+            echo
+            echo '| Repo | Last commit | Open PRs | Open issues | Latest release |'
+            echo '|---|---|---|---|---|'
+          } > "$OUT"
+          for R in "${REPOS[@]}"; do
+            COMMIT=$(gh api "repos/$R/commits?per_page=1" --jq '.[0].commit.committer.date' 2>/dev/null || echo 'n/a')
+            PRS=$(gh pr list -R "$R" --state open --json number --jq 'length' 2>/dev/null || echo '?')
+            ISSUES=$(gh issue list -R "$R" --state open --json number --jq 'length' 2>/dev/null || echo '?')
+            REL=$(gh release list -R "$R" -L 1 --json tagName --jq '.[0].tagName' 2>/dev/null || echo 'none')
+            REPO_SHORT=${R#skurtyyskirts/}
+            echo "| [$REPO_SHORT](https://github.com/$R) | ${COMMIT:0:10} | $PRS | $ISSUES | ${REL:-none} |" >> "$OUT"
+          done
+          {
+            echo
+            echo '## Recent activity (last 14 days)'
+            echo
+          } >> "$OUT"
+          for R in "${REPOS[@]}"; do
+            REPO_SHORT=${R#skurtyyskirts/}
+            echo "### $REPO_SHORT" >> "$OUT"
+            gh api "repos/$R/commits?per_page=5" --jq '.[] | "- [\(.sha[0:7])](\(.html_url)) \(.commit.message | split("\n")[0])"' 2>/dev/null >> "$OUT" || echo '- (no access)' >> "$OUT"
+            echo >> "$OUT"
+          done
+      - name: Commit dashboard
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add docs/dashboard.md
+          git diff --staged --quiet || git commit -m "dashboard: update $(date -u +%Y-%m-%d)"
+          git push || true

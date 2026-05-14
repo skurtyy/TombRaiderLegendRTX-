@@ -1,0 +1,131 @@
+name: Reusable - Upstream Release Monitor
+
+on:
+  workflow_call:
+    inputs:
+      repos_to_watch:
+        description: JSON array of GitHub repos to watch for releases
+        required: false
+        type: string
+        default: '["NVIDIAGameWorks/dxvk-remix","NVIDIAGameWorks/rtx-remix","doitsujin/dxvk"]'
+      breaking_keywords:
+        description: Comma-separated keywords flagging breaking changes
+        required: false
+        type: string
+        default: 'breaking,removed api,deprecated,incompatible,breaking change,api removed,no longer supported'
+      snapshot_path:
+        required: false
+        type: string
+        default: docs/daily_intel/upstream-versions.json
+      linear_config_path:
+        required: false
+        type: string
+        default: linear/config.json
+    secrets:
+      LINEAR_API_KEY:
+        required: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check upstream releases
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          REPOS_TO_WATCH: ${{ inputs.repos_to_watch }}
+          BREAKING_KEYWORDS: ${{ inputs.breaking_keywords }}
+          SNAPSHOT_PATH: ${{ inputs.snapshot_path }}
+          LINEAR_CONFIG_PATH: ${{ inputs.linear_config_path }}
+        run: |
+          python <<'PYEOF'
+          import json, os, urllib.request
+          from pathlib import Path
+          from datetime import datetime
+
+          repos = json.loads(os.environ['REPOS_TO_WATCH'])
+          kws = [k.strip().lower() for k in os.environ['BREAKING_KEYWORDS'].split(',') if k.strip()]
+          snap_path = Path(os.environ['SNAPSHOT_PATH'])
+          snap_path.parent.mkdir(parents=True, exist_ok=True)
+          known = json.loads(snap_path.read_text()) if snap_path.exists() else {}
+          gh_token = os.environ.get('GITHUB_TOKEN', '')
+          linear_key = os.environ.get('LINEAR_API_KEY', '')
+          cfg_path = Path(os.environ['LINEAR_CONFIG_PATH'])
+          cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+          team_id = cfg.get('teamId') or cfg.get('team_id')
+          project_id = cfg.get('projectId') or cfg.get('project_id')
+          label_ids_map = cfg.get('labelIds') or cfg.get('label_ids') or {}
+
+          def gh_latest(repo):
+              r = urllib.request.Request(
+                  f'https://api.github.com/repos/{repo}/releases/latest',
+                  headers={'Authorization': f'Bearer {gh_token}', 'Accept': 'application/vnd.github+json'})
+              try:
+                  with urllib.request.urlopen(r) as resp:
+                      return json.loads(resp.read())
+              except Exception as e:
+                  print(f'  warn {repo}: {e}')
+                  return None
+
+          def linear_create(title, desc, priority, label):
+              if not linear_key or not team_id:
+                  print(f'  (linear not configured) would create: {title}')
+                  return
+              label_id = label_ids_map.get(label) or label_ids_map.get('upstream')
+              q = 'mutation($t:String!,$p:String,$ti:String!,$d:String!,$pr:Int!,$l:[String!]){issueCreate(input:{teamId:$t,projectId:$p,title:$ti,description:$d,priority:$pr,labelIds:$l}){success}}'
+              p = json.dumps({'query': q, 'variables': {
+                  't': team_id, 'p': project_id,
+                  'ti': title, 'd': desc, 'pr': priority,
+                  'l': [label_id] if label_id else []
+              }}).encode()
+              r = urllib.request.Request('https://api.linear.app/graphql', data=p,
+                  headers={'Content-Type': 'application/json', 'Authorization': linear_key})
+              urllib.request.urlopen(r).read()
+
+          updated = dict(known)
+          log = []
+          for repo in repos:
+              rel = gh_latest(repo)
+              if not rel:
+                  continue
+              tag = rel.get('tag_name', '')
+              body = (rel.get('body') or '').lower()
+              prev = known.get(repo, '')
+              if tag and tag != prev:
+                  print(f'New: {repo} {tag} (was {prev or "unknown"})')
+                  updated[repo] = tag
+                  log.append({'repo': repo, 'tag': tag, 'prev': prev,
+                              'published': rel.get('published_at', ''),
+                              'checked': datetime.utcnow().isoformat()})
+                  breaking = any(k in body for k in kws)
+                  if breaking:
+                      linear_create(
+                          f'[BLOCKER] Breaking change in {repo} {tag}',
+                          f'**Repo:** {repo}\n**Tag:** {tag}\n**Previous:** {prev}\n\nBreaking keyword found in release notes. Review before bumping.\n\nhttps://github.com/{repo}/releases/tag/{tag}',
+                          0, 'upstream')
+                  else:
+                      linear_create(
+                          f'[Research] New release: {repo} {tag}',
+                          f'**Repo:** {repo}\n**Tag:** {tag}\n**Previous:** {prev}\n\nhttps://github.com/{repo}/releases/tag/{tag}',
+                          2, 'upstream')
+              else:
+                  print(f'  no change: {repo} {tag}')
+
+          snap_path.write_text(json.dumps(updated, indent=2))
+          if log:
+              dpath = snap_path.parent / f'upstream-{datetime.utcnow().strftime("%Y-%m-%d")}.json'
+              dpath.write_text(json.dumps(log, indent=2))
+          PYEOF
+      - name: Commit snapshot
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add docs/daily_intel/ 2>/dev/null || true
+          git diff --staged --quiet || git commit -m "bot: upstream snapshot $(date +%Y-%m-%d)"
+          git push || true

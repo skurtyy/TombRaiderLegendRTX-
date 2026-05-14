@@ -1,0 +1,86 @@
+name: Scheduled housekeeping
+
+on:
+  schedule:
+    - cron: '17 4 * * 1'   # Mondays 04:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  housekeeping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan stale branches
+        id: stale_branches
+        run: |
+          cutoff=$(date -d '60 days ago' +%s)
+          stale=$(git for-each-ref --sort=committerdate refs/remotes/origin \
+            --format='%(committerdate:unix) %(refname:short)' \
+            | awk -v c="$cutoff" '$1 < c {print $2}' \
+            | grep -vE '^origin/(HEAD|main|master|release/.*)$' || true)
+          {
+            echo "stale<<EOF"
+            echo "$stale"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Scan large files
+        id: large_files
+        run: |
+          large=$(find . -size +5M -not -path './.git/*' -type f 2>/dev/null \
+            | xargs -I{} -r du -h {} 2>/dev/null \
+            | sort -h | tail -20 || true)
+          {
+            echo "large<<EOF"
+            echo "$large"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Scan patch artifacts at root
+        id: artifacts
+        run: |
+          artifacts=$(find . -maxdepth 1 -type f \( \
+            -name '*.patch' -o -name '*.diff' -o -name 'pr_desc*.md' \
+            -o -name 'pr_description*.md' -o -name 'pr_description*.txt' \
+            -o -name 'my_diff*' \
+          \) 2>/dev/null || true)
+          {
+            echo "artifacts<<EOF"
+            echo "$artifacts"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open housekeeping issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          today=$(date -u +%F)
+          body="Automated weekly housekeeping pass.
+
+## Stale branches (>60 days)
+\`\`\`
+${{ steps.stale_branches.outputs.stale }}
+\`\`\`
+
+## Large files (>5M)
+\`\`\`
+${{ steps.large_files.outputs.large }}
+\`\`\`
+
+## Patch / scratch files at repo root
+\`\`\`
+${{ steps.artifacts.outputs.artifacts }}
+\`\`\`
+
+Run \`/agents repo-housekeeper\` interactively for a deeper sweep."
+          gh issue create \
+            --title "Housekeeping report — $today" \
+            --label housekeeping \
+            --body "$body" || echo "Could not open issue (label or perms missing)"

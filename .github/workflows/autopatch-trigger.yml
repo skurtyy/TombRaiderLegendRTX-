@@ -1,0 +1,72 @@
+name: Autopatch Session Trigger
+
+on:
+  workflow_dispatch:
+    inputs:
+      hypothesis:
+        description: 'Hypothesis to test (address + description)'
+        required: true
+        type: string
+      test_type:
+        description: 'Test mode'
+        required: true
+        default: 'hash'
+        type: choice
+        options:
+          - hash
+          - full
+          - both
+      build_description:
+        description: 'Short slug for build folder (e.g. lod-alpha-fade-0x446580)'
+        required: false
+        default: 'autopatch'
+        type: string
+
+jobs:
+  autopatch:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest
+
+      - name: Log hypothesis
+        run: |
+          Write-Host "=== AUTOPATCH TRIGGER ==="
+          Write-Host "Hypothesis: ${{ inputs.hypothesis }}"
+          Write-Host "Test type:  ${{ inputs.test_type }}"
+          Write-Host "Build slug: ${{ inputs.build_description }}"
+        shell: pwsh
+
+      - name: Verify install
+        run: python verify_install.py
+
+      - name: Run autopatch
+        run: |
+          if ("${{ inputs.test_type }}" -eq "hash" -or "${{ inputs.test_type }}" -eq "both") {
+            Write-Host "Running hash-debug test..."
+            python patches/TombRaiderLegend/run.py test-hash --build
+          }
+          if ("${{ inputs.test_type }}" -eq "full" -or "${{ inputs.test_type }}" -eq "both") {
+            Write-Host "Running full test..."
+            python patches/TombRaiderLegend/run.py test --build --randomize
+          }
+        shell: pwsh
+        continue-on-error: true
+
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: autopatch-${{ inputs.build_description }}-${{ github.run_number }}
+          path: |
+            automation/screenshots/
+            patches/TombRaiderLegend/proxy/d3d9.dll
+          if-no-files-found: warn
+          retention-days: 30

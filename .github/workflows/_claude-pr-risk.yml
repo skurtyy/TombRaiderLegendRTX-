@@ -1,0 +1,75 @@
+name: Reusable - Claude PR Risk Score
+
+on:
+  workflow_call:
+    inputs:
+      claude_model:
+        required: false
+        type: string
+        default: claude-haiku-4-5-20251001
+      review_recommendation_threshold:
+        description: Post a comment recommending `claude-review` if assessed risk is at this level or higher (low|med|high)
+        required: false
+        type: string
+        default: high
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+
+jobs:
+  risk:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Score risk
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          CLAUDE_MODEL: ${{ inputs.claude_model }}
+          THRESHOLD: ${{ inputs.review_recommendation_threshold }}
+        run: |
+          set -e
+          gh api -H 'Accept: application/vnd.github.v3.diff' "repos/$REPO/pulls/$PR_NUMBER" > /tmp/pr.diff
+          python <<'PYEOF'
+          import json, os, urllib.request, subprocess
+          from pathlib import Path
+          diff = Path('/tmp/pr.diff').read_text(encoding='utf-8', errors='replace')[:80000]
+          sys = ('Classify this pull request diff risk. Output STRICT JSON with one key `risk` whose value is exactly one of "low","med","high". '
+                 'HIGH: touches build config, security-sensitive code, native DLL boundaries, secrets, CI workflows. '
+                 'MED: substantive logic change in non-critical code, schema change, public API addition. '
+                 'LOW: tests, docs, formatting, small bug fix in isolated function. Output only the JSON.')
+          payload = json.dumps({'model': os.environ['CLAUDE_MODEL'], 'max_tokens': 32, 'system': sys,
+                                'messages':[{'role':'user','content': diff or '(empty diff)'}]}).encode()
+          req = urllib.request.Request('https://api.anthropic.com/v1/messages', data=payload, headers={
+              'Content-Type':'application/json','x-api-key': os.environ['ANTHROPIC_API_KEY'],'anthropic-version':'2023-06-01'})
+          with urllib.request.urlopen(req) as r:
+              data = json.loads(r.read())
+          raw = data['content'][0]['text'].strip().strip('`')
+          if raw.startswith('json'):
+              raw = raw[4:].strip()
+          try:
+              risk = json.loads(raw).get('risk','low').lower()
+          except Exception:
+              risk = 'low'
+          assert risk in ('low','med','high'), risk
+          repo = os.environ['REPO']; num = os.environ['PR_NUMBER']; thr = os.environ['THRESHOLD']
+          subprocess.run(['gh','pr','edit',num,'--repo',repo,'--add-label',f'risk-{risk}'], check=False)
+          order = {'low':0,'med':1,'high':2}
+          if order[risk] >= order.get(thr, 2):
+              # Do NOT auto-add the `claude-review` label here: GitHub's recursion guard
+              # prevents `pull_request: labeled` workflows from firing when GITHUB_TOKEN
+              # adds the label. Instead, leave a comment recommending the label so a
+              # human (or BOT_TOKEN-backed app) can opt in.
+              msg = (f'Risk auto-assessed as **{risk.upper()}**. '
+                     f'Add the `claude-review` label to request a Claude code review.')
+              subprocess.run(['gh','pr','comment',num,'--repo',repo,'--body',msg], check=False)
+          else:
+              print(f'Risk: {risk}')
+          PYEOF

@@ -1,0 +1,52 @@
+name: Reusable - Auto Open PR on Push
+
+on:
+  workflow_call:
+    inputs:
+      base_branch:
+        required: false
+        type: string
+        default: main
+      automerge_label:
+        required: false
+        type: string
+        default: automerge
+    secrets:
+      BOT_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  propose-pr:
+    runs-on: ubuntu-latest
+    if: github.repository_owner == github.actor || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Create PR if missing
+        env:
+          GH_TOKEN: ${{ secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ github.ref_name }}
+          BASE: ${{ inputs.base_branch }}
+          LABEL: ${{ inputs.automerge_label }}
+        run: |
+          set -e
+          if [ "$BRANCH" = "$BASE" ]; then
+            echo "On base branch ($BASE); nothing to do"
+            exit 0
+          fi
+          EXISTING=$(gh pr list --head "$BRANCH" --state open --json number --jq 'length' 2>/dev/null || echo 0)
+          if [ "$EXISTING" != "0" ]; then
+            echo "PR for $BRANCH already exists; skipping create"
+            exit 0
+          fi
+          gh pr create \
+            --base "$BASE" \
+            --head "$BRANCH" \
+            --title "chore: auto PR from $BRANCH" \
+            --body "Automated PR created on push to $BRANCH." \
+            --label "$LABEL" || echo 'gh pr create failed (label may not exist yet)'

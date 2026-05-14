@@ -1,0 +1,115 @@
+name: Reusable - Claude PR Review
+
+on:
+  workflow_call:
+    inputs:
+      claude_model:
+        required: false
+        type: string
+        default: claude-sonnet-4-6
+      max_files:
+        required: false
+        type: number
+        default: 30
+      max_diff_bytes:
+        required: false
+        type: number
+        default: 120000
+      prompt_path:
+        required: false
+        type: string
+        default: ''
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+
+jobs:
+  review:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch PR diff and call Claude
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          CLAUDE_MODEL: ${{ inputs.claude_model }}
+          MAX_FILES: ${{ inputs.max_files }}
+          MAX_DIFF_BYTES: ${{ inputs.max_diff_bytes }}
+          PROMPT_PATH: ${{ inputs.prompt_path }}
+        run: |
+          set -e
+          gh api -H 'Accept: application/vnd.github.v3.diff' "repos/$REPO/pulls/$PR_NUMBER" > /tmp/pr.diff
+          gh pr view $PR_NUMBER --repo $REPO --json title,body,baseRefName,headRefName,changedFiles > /tmp/pr.json
+          python - <<'PYEOF'
+          import json, os, urllib.request, urllib.error
+          from pathlib import Path
+
+          diff = Path('/tmp/pr.diff').read_text(encoding='utf-8', errors='replace')
+          meta = json.loads(Path('/tmp/pr.json').read_text())
+          max_files = int(os.environ['MAX_FILES'])
+          max_bytes = int(os.environ['MAX_DIFF_BYTES'])
+          changed = meta.get('changedFiles', 0)
+
+          if changed > max_files:
+              comment = f"Claude review skipped: PR touches {changed} files (cap {max_files}). Split the PR or raise `max_files`."
+              os.system(f'gh pr comment {os.environ["PR_NUMBER"]} --repo {os.environ["REPO"]} --body {json.dumps(comment)}')
+              raise SystemExit(0)
+
+          if len(diff) > max_bytes:
+              diff = diff[:max_bytes] + f"\n... [truncated at {max_bytes} bytes]"
+
+          default_sys = (
+              'You are a senior code reviewer. Review the diff for: '
+              '(1) correctness bugs, (2) security issues (injection, unsafe deserialization, secret leaks, '
+              'unchecked input), (3) concurrency hazards, (4) clear style problems. '
+              'Return concise, actionable findings. For each finding, cite the file:line range from the diff. '
+              'Group by severity: HIGH / MEDIUM / LOW. If you find nothing, say so plainly. '
+              'Do not restate the diff. Do not invent line numbers.'
+          )
+          prompt_path = os.environ.get('PROMPT_PATH', '')
+          if prompt_path and Path(prompt_path).exists():
+              system_prompt = Path(prompt_path).read_text(encoding='utf-8')
+          else:
+              p = Path('.github/prompts/pr-review.md')
+              system_prompt = p.read_text(encoding='utf-8') if p.exists() else default_sys
+
+          user_msg = (
+              f"PR title: {meta.get('title','')}\n\n"
+              f"PR body:\n{(meta.get('body') or '(no body)')[:1500]}\n\n"
+              f"--- DIFF ---\n{diff}\n"
+          )
+
+          payload = json.dumps({
+              'model': os.environ['CLAUDE_MODEL'],
+              'max_tokens': 2048,
+              'system': system_prompt,
+              'messages': [{'role': 'user', 'content': user_msg}]
+          }).encode()
+          req = urllib.request.Request(
+              'https://api.anthropic.com/v1/messages',
+              data=payload,
+              headers={
+                  'Content-Type': 'application/json',
+                  'x-api-key': os.environ['ANTHROPIC_API_KEY'],
+                  'anthropic-version': '2023-06-01'
+              }
+          )
+          try:
+              with urllib.request.urlopen(req) as r:
+                  data = json.loads(r.read())
+              review = data['content'][0]['text']
+          except urllib.error.HTTPError as e:
+              review = f'Claude review failed: HTTP {e.code} {e.read().decode("utf-8", "replace")[:500]}'
+
+          body = f"### Claude review (model: {os.environ['CLAUDE_MODEL']})\n\n{review}\n\n---\n_Triggered by `claude-review` label. Re-run by removing then re-adding the label._"
+          Path('/tmp/review.md').write_text(body, encoding='utf-8')
+          PYEOF
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file /tmp/review.md

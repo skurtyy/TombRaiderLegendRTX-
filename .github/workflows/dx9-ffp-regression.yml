@@ -1,0 +1,20 @@
+name: DX9 FFP Config Regression
+
+on:
+  pull_request:
+    paths:
+      - 'patches/**/proxy/**'
+      - 'patches/**/remix-comp/**'
+      - '**/remix-comp-proxy.ini'
+      - '**/renderer.cpp'
+  workflow_dispatch:
+
+jobs:
+  call:
+    uses: ./.github/workflows/_dx9-ffp-regression.yml
+    with:
+      ini_path: patches/TombRaiderLegend/remix-comp/assets/remix-comp-proxy.ini
+      renderer_path: patches/TombRaiderLegend/remix-comp/src/comp/modules/renderer.cpp
+      # First run seeds .github/dx9-ffp-baseline.json. Once that file is committed,
+      # flip this to false (or delete the input) to enable hard-fail on drift.
+      auto_seed_baseline: true
