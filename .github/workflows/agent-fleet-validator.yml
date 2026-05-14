@@ -1,0 +1,44 @@
+name: Validate agent fleet
+
+on:
+  pull_request:
+    paths:
+      - '.claude/agents/**'
+      - '.github/workflows/agent-fleet-validator.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate YAML frontmatter
+        run: |
+          set -e
+          shopt -s nullglob
+          fail=0
+          for f in .claude/agents/*.md; do
+            head=$(awk '/^---$/{c++; if(c==2)exit; next} c==1' "$f")
+            if [ -z "$head" ]; then
+              echo "::error file=$f::missing or empty YAML frontmatter"
+              fail=1; continue
+            fi
+            for k in name description; do
+              if ! grep -qE "^${k}:" <<<"$head"; then
+                echo "::error file=$f::frontmatter missing key: $k"
+                fail=1
+              fi
+            done
+            base=$(basename "$f" .md)
+            name=$(awk -F': *' '/^name:/{print $2; exit}' <<<"$head" | tr -d '\"' | tr -d "'")
+            if [ "$name" != "$base" ]; then
+              echo "::error file=$f::name '$name' does not match filename '$base'"
+              fail=1
+            fi
+          done
+          exit $fail
