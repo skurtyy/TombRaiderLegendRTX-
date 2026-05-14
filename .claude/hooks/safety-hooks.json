@@ -1,0 +1,45 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -Command \"$cmd = $env:CLAUDE_TOOL_INPUT; if ($cmd -match 'git\\s+commit' -and (Get-Content WHITEBOARD.md -ErrorAction SilentlyContinue | Select-String -Pattern 'Believed Resolved' -Quiet)) { Write-Error 'BLOCKED: WHITEBOARD.md contains \"Believed Resolved\" without build evidence. Run /sync-docs first.'; exit 2 } else { exit 0 }\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -Command \"$input = $env:CLAUDE_TOOL_INPUT; if ($input -match 'rtx\\.fusedWorldViewMode\\s*=\\s*1') { Write-Error 'BLOCKED: fusedWorldViewMode must be 0 (separate W/V/P matrices, not fused). See CLAUDE.md.'; exit 2 } else { exit 0 }\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -Command \"$file = $env:CLAUDE_TOOL_FILE; if ($file -match '\\.(c|cpp|h|hpp)$') { Write-Host \"[hook] source file modified: $file - remember to rebuild via run.py\" }\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -Command \"if (Test-Path CHANGELOG.md) { $lastModified = (Get-Item CHANGELOG.md).LastWriteTime; $age = (Get-Date) - $lastModified; if ($age.TotalHours -gt 4) { Write-Host '[hook] CHANGELOG.md not updated in this session - consider /sync-docs before next session' } }\""
+          }
+        ]
+      }
+    ]
+  }
+}

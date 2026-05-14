@@ -1,0 +1,39 @@
+name: Weekly Remix Community Sweep
+
+on:
+  schedule:
+    # Sunday 7 AM CST = 13:00 UTC
+    - cron: '0 13 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  community-sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install deps
+        run: pip install anthropic requests
+
+      - name: Run community sweep
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python scripts/community_sweep.py
+
+      - name: Commit findings
+        run: |
+          git config user.name "trl-sweep-bot"
+          git config user.email "bot@skurtyy.dev"
+          git add community-findings/
+          if ! git diff --cached --quiet; then
+            git commit -m "community-sweep: $(date -u +%Y-%m-%d)"
+            git push
+          fi

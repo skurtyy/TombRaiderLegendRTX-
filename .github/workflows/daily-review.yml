@@ -1,0 +1,58 @@
+name: TRL Daily Review Agent
+
+on:
+  schedule:
+    # 6 AM CST = 12:00 UTC
+    - cron: '0 12 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  daily-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Anthropic SDK
+        run: pip install anthropic
+
+      - name: Run daily review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python scripts/daily_review.py
+
+      - name: Commit review output
+        run: |
+          git config user.name "trl-review-bot"
+          git config user.email "bot@skurtyy.dev"
+          git add daily-reviews/
+          if ! git diff --cached --quiet; then
+            git commit -m "daily-review: $(date -u +%Y-%m-%d)"
+            git push
+          fi
+
+      - name: Open issue if blockers found
+        if: ${{ env.HAS_BLOCKERS == 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('daily-reviews/latest-blockers.md', 'utf8');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Daily Review Blockers — ${new Date().toISOString().slice(0,10)}`,
+              body,
+              labels: ['daily-review', 'blocker']
+            });

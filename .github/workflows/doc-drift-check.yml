@@ -1,0 +1,49 @@
+name: Doc Drift Check
+
+on:
+  pull_request:
+    paths:
+      - 'WHITEBOARD.md'
+      - 'CHANGELOG.md'
+      - 'README.md'
+      - 'CLAUDE.md'
+  workflow_dispatch:
+
+jobs:
+  drift-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for forbidden "Believed Resolved" claims
+        run: |
+          if grep -rn "Believed Resolved" WHITEBOARD.md README.md 2>/dev/null; then
+            echo "::error::WHITEBOARD.md or README.md contains 'Believed Resolved' — every claim must be 'Verified (build-NNN)' with test evidence."
+            exit 1
+          fi
+
+      - name: Check rtx.conf invariants
+        run: |
+          if [ -f "rtx.conf" ]; then
+            if ! grep -q "fusedWorldViewMode\s*=\s*0" rtx.conf; then
+              echo "::error::rtx.conf must have fusedWorldViewMode=0"
+              exit 1
+            fi
+            if ! grep -q "useVertexCapture\s*=\s*True" rtx.conf; then
+              echo "::error::rtx.conf must have useVertexCapture=True"
+              exit 1
+            fi
+            if ! grep -q "zUp\s*=\s*True" rtx.conf; then
+              echo "::error::rtx.conf must have zUp=True"
+              exit 1
+            fi
+          fi
+
+      - name: Verify CHANGELOG has entry for each new build folder
+        run: |
+          for build in $(find . -maxdepth 3 -type d -name 'build-*' 2>/dev/null); do
+            build_num=$(basename "$build" | sed 's/build-//' | cut -d- -f1)
+            if ! grep -q "Build $build_num" CHANGELOG.md; then
+              echo "::warning::Build $build_num has no CHANGELOG.md entry"
+            fi
+          done
