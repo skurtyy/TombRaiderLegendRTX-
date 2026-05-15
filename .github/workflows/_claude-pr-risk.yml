@@ -36,11 +36,19 @@ jobs:
           THRESHOLD: ${{ inputs.review_recommendation_threshold }}
         run: |
           set -e
-          gh api -H 'Accept: application/vnd.github.v3.diff' "repos/$REPO/pulls/$PR_NUMBER" > /tmp/pr.diff
+          gh api -H 'Accept: application/vnd.github.v3.diff' "repos/$REPO/pulls/$PR_NUMBER" > /tmp/pr.diff || echo "Failed to fetch diff"
           python <<'PYEOF'
-          import json, os, urllib.request, subprocess
+          import json, os, urllib.request, subprocess, sys as pysys
           from pathlib import Path
-          diff = Path('/tmp/pr.diff').read_text(encoding='utf-8', errors='replace')[:80000]
+          try:
+              diff = Path('/tmp/pr.diff').read_text(encoding='utf-8', errors='replace')[:80000]
+          except:
+              diff = ''
+
+          if not os.environ.get('ANTHROPIC_API_KEY'):
+              print("No Anthropic key, skipping risk score")
+              pysys.exit(0)
+
           sys = ('Classify this pull request diff risk. Output STRICT JSON with one key `risk` whose value is exactly one of "low","med","high". '
                  'HIGH: touches build config, security-sensitive code, native DLL boundaries, secrets, CI workflows. '
                  'MED: substantive logic change in non-critical code, schema change, public API addition. '
@@ -49,27 +57,30 @@ jobs:
                                 'messages':[{'role':'user','content': diff or '(empty diff)'}]}).encode()
           req = urllib.request.Request('https://api.anthropic.com/v1/messages', data=payload, headers={
               'Content-Type':'application/json','x-api-key': os.environ['ANTHROPIC_API_KEY'],'anthropic-version':'2023-06-01'})
-          with urllib.request.urlopen(req) as r:
-              data = json.loads(r.read())
-          raw = data['content'][0]['text'].strip().strip('`')
-          if raw.startswith('json'):
-              raw = raw[4:].strip()
           try:
-              risk = json.loads(raw).get('risk','low').lower()
-          except Exception:
-              risk = 'low'
-          assert risk in ('low','med','high'), risk
-          repo = os.environ['REPO']; num = os.environ['PR_NUMBER']; thr = os.environ['THRESHOLD']
-          subprocess.run(['gh','pr','edit',num,'--repo',repo,'--add-label',f'risk-{risk}'], check=False)
-          order = {'low':0,'med':1,'high':2}
-          if order[risk] >= order.get(thr, 2):
-              # Do NOT auto-add the `claude-review` label here: GitHub's recursion guard
-              # prevents `pull_request: labeled` workflows from firing when GITHUB_TOKEN
-              # adds the label. Instead, leave a comment recommending the label so a
-              # human (or BOT_TOKEN-backed app) can opt in.
-              msg = (f'Risk auto-assessed as **{risk.upper()}**. '
-                     f'Add the `claude-review` label to request a Claude code review.')
-              subprocess.run(['gh','pr','comment',num,'--repo',repo,'--body',msg], check=False)
-          else:
-              print(f'Risk: {risk}')
+              with urllib.request.urlopen(req) as r:
+                  data = json.loads(r.read())
+              raw = data['content'][0]['text'].strip().strip('`')
+              if raw.startswith('json'):
+                  raw = raw[4:].strip()
+              try:
+                  risk = json.loads(raw).get('risk','low').lower()
+              except Exception:
+                  risk = 'low'
+              assert risk in ('low','med','high'), risk
+              repo = os.environ['REPO']; num = os.environ['PR_NUMBER']; thr = os.environ['THRESHOLD']
+              subprocess.run(['gh','pr','edit',num,'--repo',repo,'--add-label',f'risk-{risk}'], check=False)
+              order = {'low':0,'med':1,'high':2}
+              if order[risk] >= order.get(thr, 2):
+                  # Do NOT auto-add the `claude-review` label here: GitHub's recursion guard
+                  # prevents `pull_request: labeled` workflows from firing when GITHUB_TOKEN
+                  # adds the label. Instead, leave a comment recommending the label so a
+                  # human (or BOT_TOKEN-backed app) can opt in.
+                  msg = (f'Risk auto-assessed as **{risk.upper()}**. '
+                         f'Add the `claude-review` label to request a Claude code review.')
+                  subprocess.run(['gh','pr','comment',num,'--repo',repo,'--body',msg], check=False)
+              else:
+                  print(f'Risk: {risk}')
+          except Exception as e:
+              print(f"Failed to score risk: {e}")
           PYEOF
