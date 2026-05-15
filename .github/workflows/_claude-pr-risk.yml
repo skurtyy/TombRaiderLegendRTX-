@@ -49,14 +49,15 @@ jobs:
                                 'messages':[{'role':'user','content': diff or '(empty diff)'}]}).encode()
           req = urllib.request.Request('https://api.anthropic.com/v1/messages', data=payload, headers={
               'Content-Type':'application/json','x-api-key': os.environ['ANTHROPIC_API_KEY'],'anthropic-version':'2023-06-01'})
-          with urllib.request.urlopen(req) as r:
-              data = json.loads(r.read())
-          raw = data['content'][0]['text'].strip().strip('`')
-          if raw.startswith('json'):
-              raw = raw[4:].strip()
           try:
+              with urllib.request.urlopen(req) as r:
+                  data = json.loads(r.read())
+              raw = data['content'][0]['text'].strip().strip('`')
+              if raw.startswith('json'):
+                  raw = raw[4:].strip()
               risk = json.loads(raw).get('risk','low').lower()
-          except Exception:
+          except Exception as e:
+              print(f'Error calling Anthropic API: {e}')
               risk = 'low'
           assert risk in ('low','med','high'), risk
           repo = os.environ['REPO']; num = os.environ['PR_NUMBER']; thr = os.environ['THRESHOLD']
