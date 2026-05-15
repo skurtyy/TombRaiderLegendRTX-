@@ -1,3 +1,8 @@
+---
+name: research-scanner
+description: Upstream research and release monitoring agent for TombRaiderLegendRTX. Checks RTX Remix, dxvk-re...
+---
+
 # research-scanner
 
 ## Role
