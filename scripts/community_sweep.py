@@ -49,7 +49,7 @@ def main() -> int:
     today = dt.date.today().isoformat()
 
     response = client.messages.create(
-        model="claude-opus-4-7",
+        model="claude-opus-4-6",
         max_tokens=4000,
         system=SYSTEM,
         tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 15}],

@@ -86,7 +86,7 @@ def main() -> int:
     today = dt.date.today().isoformat()
 
     response = client.messages.create(
-        model="claude-opus-4-7",
+        model="claude-opus-4-6",
         max_tokens=8000,
         thinking={"type": "enabled", "budget_tokens": 4000},
         system=SYSTEM,
