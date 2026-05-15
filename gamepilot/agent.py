@@ -1,5 +1,4 @@
 """Main GamePilot agent — vision-driven game control loop."""
-
 from __future__ import annotations
 
 import signal
@@ -8,22 +7,23 @@ import sys
 import time
 from pathlib import Path
 
+from PIL import Image
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GAME_DIR = REPO_ROOT / "Tomb Raider Legend"
 
 sys.path.insert(0, str(REPO_ROOT))
 
-from gamepilot.capture import capture, image_to_bytes  # noqa: E402
-from gamepilot.vision import GameState, classify_state, decide_action  # noqa: E402
-from gamepilot.controller import execute_action  # noqa: E402
-from gamepilot.states.handlers import pre_process  # noqa: E402
-from gamepilot.session import Session  # noqa: E402
-from livetools.gamectl import find_hwnd_by_exe  # noqa: E402
+from gamepilot.capture import capture, image_to_bytes
+from gamepilot.vision import GameState, classify_state, decide_action
+from gamepilot.controller import execute_action
+from gamepilot.states.handlers import pre_process
+from gamepilot.session import Session
+from livetools.gamectl import find_hwnd_by_exe
 
 MAX_STEPS = 200
 CAPTURE_INTERVAL = 0.5  # seconds between captures when idle
-STUCK_THRESHOLD = 5  # same state+action this many times = stuck
+STUCK_THRESHOLD = 5     # same state+action this many times = stuck
 MAX_CONSECUTIVE_ERRORS = 10  # abort after this many consecutive failures
 MAX_UNKNOWN_STREAK = 8  # abort after this many consecutive UNKNOWN classifications
 
@@ -81,8 +81,7 @@ def _kill_game_safe() -> None:
     try:
         subprocess.run(
             ["taskkill", "/f", "/im", "trl.exe"],
-            capture_output=True,
-            timeout=10,
+            capture_output=True, timeout=10,
         )
     except Exception:
         pass
@@ -164,10 +163,10 @@ def _run_agent_inner(
     is_shutdown,
 ) -> dict:
     print("=" * 60)
-    print("  GAMEPILOT — Vision-Controlled Game Agent")
+    print(f"  GAMEPILOT — Vision-Controlled Game Agent")
     print(f"  Goal: {goal}")
     if dry_run:
-        print("  Mode: DRY RUN (no game interaction)")
+        print(f"  Mode: DRY RUN (no game interaction)")
     print(f"  Session: {session.session_dir}")
     print("=" * 60)
 
@@ -180,13 +179,8 @@ def _run_agent_inner(
             hwnd = find_hwnd_by_exe("trl.exe")
 
         if not hwnd:
-            result = {
-                "success": False,
-                "error": "Game not running",
-                "steps_taken": 0,
-                "history": [],
-                "session_dir": str(session.session_dir),
-            }
+            result = {"success": False, "error": "Game not running", "steps_taken": 0,
+                      "history": [], "session_dir": str(session.session_dir)}
             session.write_summary(result)
             return result
 
@@ -233,10 +227,7 @@ def _run_agent_inner(
         # Capture screenshot
         img = None
         if not dry_run:
-            use_nvidia = prefer_nvidia or last_state in (
-                GameState.GAMEPLAY,
-                GameState.REMIX_MENU,
-            )
+            use_nvidia = prefer_nvidia or last_state in (GameState.GAMEPLAY, GameState.REMIX_MENU)
             try:
                 img = capture(hwnd, prefer_nvidia=use_nvidia)
             except Exception as e:
@@ -256,9 +247,7 @@ def _run_agent_inner(
                 session.log("capture_failed", step=step)
                 consecutive_errors += 1
                 if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-                    print(
-                        f"[agent] {MAX_CONSECUTIVE_ERRORS} consecutive errors — aborting"
-                    )
+                    print(f"[agent] {MAX_CONSECUTIVE_ERRORS} consecutive errors — aborting")
                     session.log("too_many_errors", count=consecutive_errors)
                     result = {
                         "success": False,
@@ -297,9 +286,7 @@ def _run_agent_inner(
         if state == GameState.UNKNOWN:
             unknown_streak += 1
             if unknown_streak >= MAX_UNKNOWN_STREAK:
-                print(
-                    f"[agent] {MAX_UNKNOWN_STREAK} consecutive UNKNOWN states — aborting"
-                )
+                print(f"[agent] {MAX_UNKNOWN_STREAK} consecutive UNKNOWN states — aborting")
                 session.log("unknown_streak", count=unknown_streak)
                 result = {
                     "success": False,
@@ -327,11 +314,7 @@ def _run_agent_inner(
         # Stuck detection
         if _detect_stuck(history):
             print(f"[agent] Stuck — same action repeated {STUCK_THRESHOLD} times")
-            session.log(
-                "stuck_detected",
-                step=step,
-                last_action=history[-1] if history else None,
-            )
+            session.log("stuck_detected", step=step, last_action=history[-1] if history else None)
             # Force a different action: try ESCAPE to unstick
             unstick_action = {
                 "action": "key",

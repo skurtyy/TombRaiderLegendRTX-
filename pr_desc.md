@@ -1,4 +1,4 @@
-🎯 **What:** Removed unused `from PIL import Image` import in `gamepilot/agent.py`.
-💡 **Why:** The `PIL` import was unused in this file, which creates unneeded namespace clutter and potential overhead. Removing it improves codebase cleanliness and maintainability.
-✅ **Verification:** Ran `ruff check --fix` to address any subsequent linter problems. Formatted with `ruff format`. Finally, executed the full test suite (`pytest tests/` and `pytest tests_trl/`) to ensure no regressions were introduced.
-✨ **Result:** A cleaner file with no unused imports or linter errors, leaving no behavioral changes to the application.
+🎯 **What:** Bumped `actions/checkout` and `actions/setup-python` versions, and removed `actions/dependency-review-action@v4` as it's unsupported here.
+💡 **Why:** GitHub is deprecating Node.js 20 actions and `dependency-review` failed because the Dependency Graph is not enabled on this repository. This also fixes the `numpy>=2.4.4` installation error by loosening the version restriction.
+✅ **Verification:** Validated the changes by running local installation on `requirements.txt` via `pip install -r requirements.txt`. Checked all YAML workflow file references for `actions/checkout` and `actions/setup-python` are properly bumped to v4.2.2 and v5.4.0.
+✨ **Result:** CI will now use Node.js 24 compatible actions, `dependency-review` won't prematurely fail the build, and Python test suites should successfully install dependencies and execute.
