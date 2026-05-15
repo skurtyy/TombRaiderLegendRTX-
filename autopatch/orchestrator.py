@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import shutil
 import sys
 import time
 from pathlib import Path
@@ -11,7 +10,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from config import GAME_DIR, NVIDIA_SCREENSHOT_DIR as SCREENSHOTS_SRC
+from config import GAME_DIR, NVIDIA_SCREENSHOT_DIR as SCREENSHOTS_SRC  # noqa: E402
 
 MACROS_FILE = Path(__file__).resolve().parent / "macros.json"
 
@@ -211,8 +210,7 @@ def run(skip_diagnosis: bool = False, dry_run: bool = False) -> None:
     from autopatch.hypothesis import generate_from_diagnostic
     from autopatch.patcher import (
         attach_livetools, detach_livetools,
-        apply_runtime, revert_runtime,
-        promote_to_source, build_and_deploy,
+        apply_runtime, promote_to_source, build_and_deploy,
     )
     from autopatch.diagnose import run_diagnostic
 
