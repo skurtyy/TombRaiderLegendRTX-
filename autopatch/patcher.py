@@ -1,8 +1,8 @@
 """Patch application — runtime (livetools mem write) and source (C edit)."""
+
 from __future__ import annotations
 
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -12,8 +12,8 @@ PROXY_DIR = REPO_ROOT / "patches" / "TombRaiderLegend" / "proxy"
 PROXY_SRC = PROXY_DIR / "d3d9_device.c"
 
 sys.path.insert(0, str(REPO_ROOT))
-from config import GAME_DIR
-from patches.TombRaiderLegend.run import build_proxy_bundle
+from config import GAME_DIR  # noqa: E402
+from patches.TombRaiderLegend.run import build_proxy_bundle  # noqa: E402
 
 
 def apply_runtime(addr: int, patch_bytes: bytes) -> bool:
@@ -23,15 +23,19 @@ def apply_runtime(addr: int, patch_bytes: bytes) -> bool:
     """
     hex_str = patch_bytes.hex()
     result = subprocess.run(
-        [sys.executable, "-m", "livetools", "mem", "write",
-         hex(addr), hex_str],
-        capture_output=True, text=True, cwd=str(REPO_ROOT), timeout=10,
+        [sys.executable, "-m", "livetools", "mem", "write", hex(addr), hex_str],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+        timeout=10,
     )
     success = result.returncode == 0 and "error" not in result.stdout.lower()
     if success:
         print(f"[patcher] Runtime patch applied: {hex(addr)} <- {hex_str}")
     else:
-        print(f"[patcher] Runtime patch FAILED at {hex(addr)}: {result.stdout} {result.stderr}")
+        print(
+            f"[patcher] Runtime patch FAILED at {hex(addr)}: {result.stdout} {result.stderr}"
+        )
     return success
 
 
@@ -44,7 +48,10 @@ def attach_livetools(target: str = "trl.exe") -> bool:
     """Attach livetools to the target process."""
     result = subprocess.run(
         [sys.executable, "-m", "livetools", "attach", target],
-        capture_output=True, text=True, cwd=str(REPO_ROOT), timeout=30,
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+        timeout=30,
     )
     success = result.returncode == 0
     if success:
@@ -58,7 +65,10 @@ def detach_livetools() -> None:
     """Detach livetools from the current process."""
     subprocess.run(
         [sys.executable, "-m", "livetools", "detach"],
-        capture_output=True, text=True, cwd=str(REPO_ROOT), timeout=10,
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+        timeout=10,
     )
     print("[patcher] Detached")
 
@@ -72,13 +82,10 @@ def promote_to_source(addr: int, patch_bytes: bytes, description: str) -> bool:
     source = PROXY_SRC.read_text()
 
     size = len(patch_bytes)
-    hex_comment = " ".join(f"0x{b:02X}" for b in patch_bytes)
 
     if size <= 6 and all(b == 0x90 for b in patch_bytes):
         # NOP patch
-        nop_lines = "\n".join(
-            f"            p[{i}] = 0x90;" for i in range(size)
-        )
+        nop_lines = "\n".join(f"            p[{i}] = 0x90;" for i in range(size))
         patch_block = f"""
     /* Autopatch: {description} */
     {{
@@ -111,7 +118,8 @@ def promote_to_source(addr: int, patch_bytes: bytes, description: str) -> bool:
     # Find the function and its last }
     func_match = re.search(
         r"(static void TRL_ApplyMemoryPatches\(.*?\{)",
-        source, re.DOTALL,
+        source,
+        re.DOTALL,
     )
     if not func_match:
         print("[patcher] ERROR: Could not find TRL_ApplyMemoryPatches in source")
@@ -125,9 +133,9 @@ def promote_to_source(addr: int, patch_bytes: bytes, description: str) -> bool:
     brace_depth = 0
     func_end_offset = None
     for i, ch in enumerate(remaining):
-        if ch == '{':
+        if ch == "{":
             brace_depth += 1
-        elif ch == '}':
+        elif ch == "}":
             brace_depth -= 1
             if brace_depth == 0:
                 func_end_offset = func_start + i
