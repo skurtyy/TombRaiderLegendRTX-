@@ -1,3 +1,8 @@
+---
+name: research-scanner
+description: "Upstream research and release monitoring agent for TombRaiderLegendRTX. Checks RTX Remix, dxvk-remix, and sister repo findings for anything relevant to TRL's active blockers. Runs weekly or on demand."
+---
+
 # research-scanner
 
 ## Role
