@@ -1,4 +1,5 @@
 """Differential frame capture — identify which draw calls vanish at distance."""
+
 from __future__ import annotations
 
 import json
@@ -22,6 +23,7 @@ sys.path.insert(0, str(REPO_ROOT))
 @dataclass
 class MissingDraw:
     """A draw call present in near-frame but absent in far-frame."""
+
     seq_near: int
     method: str
     prim_count: int
@@ -60,17 +62,14 @@ def _fingerprint_draw(rec: dict) -> str:
 
 def _extract_draw_calls(jsonl_path: Path) -> list[dict]:
     """Extract all draw calls from a JSONL frame capture."""
-    draws = []
     with open(jsonl_path) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            rec = json.loads(line)
-            method = rec.get("method", "")
-            if method in ("DrawIndexedPrimitive", "DrawPrimitive"):
-                draws.append(rec)
-    return draws
+        return [
+            rec
+            for line in f
+            if line.strip()
+            and (rec := json.loads(line)).get("method", "")
+            in {"DrawIndexedPrimitive", "DrawPrimitive"}
+        ]
 
 
 def _deploy_tracer() -> Path | None:
@@ -101,6 +100,7 @@ def _restore_proxy() -> None:
     time.sleep(3)
 
     from autopatch.safety import restore_game_dll
+
     restore_game_dll()
 
     # Restore proxy.ini from proxy source
@@ -112,8 +112,12 @@ def _restore_proxy() -> None:
 
 def _launch_and_capture(macro_name: str) -> Path | None:
     """Launch game into chapter 2, advance into Bolivia, run movement macro, and trigger capture."""
-    from livetools.gamectl import (find_hwnd_by_exe, send_keys, load_macros,
-                                   get_window_info)
+    from livetools.gamectl import (
+        find_hwnd_by_exe,
+        send_keys,
+        load_macros,
+        get_window_info,
+    )
 
     game_exe = GAME_DIR / "trl.exe"
 
@@ -130,6 +134,7 @@ def _launch_and_capture(macro_name: str) -> Path | None:
     # Bypass setup dialog via registry and write TR7.arg for direct level load
     sys.path.insert(0, str(REPO_ROOT / "patches" / "TombRaiderLegend"))
     from run import set_graphics_config, dismiss_setup_dialog, write_tr7_arg
+
     set_graphics_config()
     write_tr7_arg(chapter=2)
 
@@ -235,19 +240,26 @@ def diff_frames(near_jsonl: Path, far_jsonl: Path) -> list[MissingDraw]:
         fp = _fingerprint_draw(draw)
         if fp not in far_fingerprints:
             args = draw.get("args", {})
-            missing.append(MissingDraw(
-                seq_near=draw.get("seq", 0),
-                method=draw.get("method", ""),
-                prim_count=args.get("PrimitiveCount", 0),
-                vtx_decl_hash=str(draw.get("vertex_decl_elements", "")),
-                texture_ptrs=[str(t) for t in draw.get("textures", [])[:4]],
-                caller_addrs=[a if isinstance(a, str) else hex(a) for a in draw.get("backtrace", [])[:5]],
-                start_vertex=args.get("StartVertex", 0),
-                num_vertices=args.get("NumVertices", 0),
-            ))
+            missing.append(
+                MissingDraw(
+                    seq_near=draw.get("seq", 0),
+                    method=draw.get("method", ""),
+                    prim_count=args.get("PrimitiveCount", 0),
+                    vtx_decl_hash=str(draw.get("vertex_decl_elements", "")),
+                    texture_ptrs=[str(t) for t in draw.get("textures", [])[:4]],
+                    caller_addrs=[
+                        a if isinstance(a, str) else hex(a)
+                        for a in draw.get("backtrace", [])[:5]
+                    ],
+                    start_vertex=args.get("StartVertex", 0),
+                    num_vertices=args.get("NumVertices", 0),
+                )
+            )
 
-    print(f"[diagnose] Near draws: {len(near_draws)}, Far draws: {len(far_draws)}, "
-          f"Missing at distance: {len(missing)}")
+    print(
+        f"[diagnose] Near draws: {len(near_draws)}, Far draws: {len(far_draws)}, "
+        f"Missing at distance: {len(missing)}"
+    )
     return missing
 
 
