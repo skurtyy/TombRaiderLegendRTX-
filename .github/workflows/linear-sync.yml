@@ -10,6 +10,9 @@ concurrency:
   group: linear-sync-${{ github.event.issue.number || github.event.pull_request.number }}
   cancel-in-progress: false
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   call:
     uses: ./.github/workflows/_linear-sync.yml
