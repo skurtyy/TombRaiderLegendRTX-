@@ -1,10 +1,14 @@
-🎯 **What:** The testing gap in `retools/pyghidra_backend.py` has been addressed. The module was previously at ~83% coverage with multiple untested functions including environment path setups, error handling for decompilation, and CLI execution.
+🧪 [testing improvement] Add tests for issue_exists in linear sync
+
+🎯 **What:**
+The `issue_exists` function inside `linear/sync.py` lacked unit tests. This PR addresses that gap by adding comprehensive tests for its boolean return logic and its internal generation of GraphQL queries via the `gql` dependency.
 
 📊 **Coverage:**
-* Added tests for `is_analyzed` to correctly check for empty representations (`.rep` dir empty or missing).
-* Added tests for `_ensure_java_env` and `_ensure_ghidra_env` to verify proper detection and assignment of `JAVA_HOME` and `GHIDRA_INSTALL_DIR`.
-* Added test for `_import_pyghidra` failing via `ImportError`.
-* Added tests for `decompile` error paths (`pyghidra` missing, `GHIDRA_INSTALL_DIR` missing, and non-analyzed project).
-* Added execution tests for the CLI (`__main__` entry point) via `runpy`.
+The new `tests_linear/test_sync.py` file covers the following scenarios for `issue_exists`:
+- Happy path (issue exists): Verifies that it returns True when nodes are returned, and precisely checks that the `gql` query template and variables are constructed correctly.
+- Edge cases (issue does not exist):
+  - Returns False when the `nodes` list is empty.
+  - Returns False when the response structure is missing the `nodes` or `issues` keys entirely.
 
-✨ **Result:** The `retools/pyghidra_backend.py` module now has 100% test coverage, and its correctness has been comprehensively verified without introducing regressions.
+✨ **Result:**
+Test coverage for `linear/sync.py` has been significantly improved. Refactoring the Linear sync script logic or upgrading its dependencies can now be done with confidence, as regressions in GraphQL query construction and standard issue resolution will be caught.
