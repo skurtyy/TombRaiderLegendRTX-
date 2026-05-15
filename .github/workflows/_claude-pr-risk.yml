@@ -38,19 +38,31 @@ jobs:
           set -e
           gh api -H 'Accept: application/vnd.github.v3.diff' "repos/$REPO/pulls/$PR_NUMBER" > /tmp/pr.diff
           python <<'PYEOF'
-          import json, os, urllib.request, subprocess
+          import json, os, urllib.request, urllib.error, subprocess, sys
           from pathlib import Path
           diff = Path('/tmp/pr.diff').read_text(encoding='utf-8', errors='replace')[:80000]
-          sys = ('Classify this pull request diff risk. Output STRICT JSON with one key `risk` whose value is exactly one of "low","med","high". '
+          sys_prompt = ('Classify this pull request diff risk. Output STRICT JSON with one key `risk` whose value is exactly one of "low","med","high". '
                  'HIGH: touches build config, security-sensitive code, native DLL boundaries, secrets, CI workflows. '
                  'MED: substantive logic change in non-critical code, schema change, public API addition. '
                  'LOW: tests, docs, formatting, small bug fix in isolated function. Output only the JSON.')
-          payload = json.dumps({'model': os.environ['CLAUDE_MODEL'], 'max_tokens': 32, 'system': sys,
+          payload = json.dumps({'model': os.environ['CLAUDE_MODEL'], 'max_tokens': 32, 'system': sys_prompt,
                                 'messages':[{'role':'user','content': diff or '(empty diff)'}]}).encode()
           req = urllib.request.Request('https://api.anthropic.com/v1/messages', data=payload, headers={
               'Content-Type':'application/json','x-api-key': os.environ['ANTHROPIC_API_KEY'],'anthropic-version':'2023-06-01'})
-          with urllib.request.urlopen(req, timeout=30) as r:
-              data = json.loads(r.read())
+
+          try:
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  data = json.loads(r.read())
+          except urllib.error.HTTPError as e:
+              print(f"HTTPError: {e.code} {e.reason}")
+              if e.code == 401:
+                  print("Unauthorized - likely missing or invalid API key.")
+                  sys.exit(0) # Exit gracefully so PR checks don't block
+              raise
+          except Exception as e:
+              print(f"Error calling Anthropic API: {e}")
+              sys.exit(0)
+
           raw = data['content'][0]['text'].strip().strip('`')
           if raw.startswith('json'):
               raw = raw[4:].strip()
