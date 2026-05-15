@@ -1,10 +1,6 @@
-🎯 **What:** The testing gap in `retools/pyghidra_backend.py` has been addressed. The module was previously at ~83% coverage with multiple untested functions including environment path setups, error handling for decompilation, and CLI execution.
-
-📊 **Coverage:**
-* Added tests for `is_analyzed` to correctly check for empty representations (`.rep` dir empty or missing).
-* Added tests for `_ensure_java_env` and `_ensure_ghidra_env` to verify proper detection and assignment of `JAVA_HOME` and `GHIDRA_INSTALL_DIR`.
-* Added test for `_import_pyghidra` failing via `ImportError`.
-* Added tests for `decompile` error paths (`pyghidra` missing, `GHIDRA_INSTALL_DIR` missing, and non-analyzed project).
-* Added execution tests for the CLI (`__main__` entry point) via `runpy`.
-
-✨ **Result:** The `retools/pyghidra_backend.py` module now has 100% test coverage, and its correctness has been comprehensively verified without introducing regressions.
+Title: "🧹 Remove unused `import re` in `update_test.py`"
+Description:
+* 🎯 **What:** Removed the unused `import re` on line 1 of `update_test.py`.
+* 💡 **Why:** This improves the code health by cleaning up unnecessary dependencies, making the code slightly cleaner and more maintainable.
+* ✅ **Verification:** The file was checked with `ruff`, tests were run successfully (`pytest tests/`), and the AI reviewer confirmed the removal is fully safe with no side effects. The unintentional modification of `signatures.db` was reverted before committing.
+* ✨ **Result:** `update_test.py` no longer contains the unused `re` import, resolving the static analysis warning.
