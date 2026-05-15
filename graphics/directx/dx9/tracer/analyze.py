@@ -5,18 +5,19 @@ Provides: summary, draw-call listing, hotpath aggregation, state
 reconstruction, render pass detection, matrix flow, shader disasm,
 call graph building, and more.
 """
+
 from __future__ import annotations
 
 
 import argparse
 import csv
 import json
-import math
 import subprocess
 import sys
 
 try:
     import orjson
+
     HAS_ORJSON = True
 except ImportError:
     HAS_ORJSON = False
@@ -26,21 +27,42 @@ from typing import Any
 
 from .d3d9_methods import (
     D3D9_METHODS,
-    SLOT, DRAW_SLOTS, GEOMETRY_DRAW_SLOTS, STATE_SET_SLOTS, DATA_READER_SLOTS,
-    D3DRS_ZENABLE, D3DRS_FILLMODE, D3DRS_ZWRITEENABLE, D3DRS_ALPHATESTENABLE,
-    D3DRS_SRCBLEND, D3DRS_DESTBLEND, D3DRS_CULLMODE, D3DRS_ALPHABLENDENABLE,
-    D3DRS_FOGENABLE, D3DRS_STENCILENABLE, D3DRS_COLORWRITEENABLE, D3DRS_BLENDOP,
-    D3DRS_LIGHTING, D3DRS_SRGBWRITEENABLE, D3DRS_SCISSORTESTENABLE,
-    D3DRS_NAMES, D3DTS_NAMES,
-    D3DCLEAR_TARGET, D3DCLEAR_ZBUFFER, D3DCLEAR_STENCIL,
+    SLOT,
+    GEOMETRY_DRAW_SLOTS,
+    STATE_SET_SLOTS,
+    D3DRS_ZENABLE,
+    D3DRS_FILLMODE,
+    D3DRS_ZWRITEENABLE,
+    D3DRS_ALPHATESTENABLE,
+    D3DRS_SRCBLEND,
+    D3DRS_DESTBLEND,
+    D3DRS_CULLMODE,
+    D3DRS_ALPHABLENDENABLE,
+    D3DRS_FOGENABLE,
+    D3DRS_STENCILENABLE,
+    D3DRS_COLORWRITEENABLE,
+    D3DRS_BLENDOP,
+    D3DRS_LIGHTING,
+    D3DRS_SRGBWRITEENABLE,
+    D3DRS_SCISSORTESTENABLE,
+    D3DRS_NAMES,
+    D3DTS_NAMES,
+    D3DCLEAR_TARGET,
+    D3DCLEAR_ZBUFFER,
+    D3DCLEAR_STENCIL,
     D3DPT_NAMES,
-    D3DDECLTYPE_NAMES, D3DDECLUSAGE_NAMES, D3DDECLMETHOD_NAMES,
-    D3DBLEND_NAMES, D3DBLENDOP_NAMES, D3DCMP_NAMES, D3DCULL_NAMES, D3DFILL_NAMES,
+    D3DDECLTYPE_NAMES,
+    D3DDECLUSAGE_NAMES,
+    D3DBLEND_NAMES,
+    D3DBLENDOP_NAMES,
+    D3DCULL_NAMES,
+    D3DFILL_NAMES,
     MATRIX_FLOAT_COUNT,
 )
 
 
 # ── Data loading ──────────────────────────────────────────────────────────────────────
+
 
 def load_records(path: str, filt: str | None = None) -> list[dict]:
     records = []
@@ -73,10 +95,13 @@ def _parse_filter(expr: str):
         idx = expr.find(op)
         if idx >= 0:
             field = expr[:idx].strip()
-            val_str = expr[idx + len(op):].strip()
+            val_str = expr[idx + len(op) :].strip()
             try:
-                val: Any = int(val_str, 16) if val_str.startswith("0x") else (
-                    float(val_str) if "." in val_str else int(val_str))
+                val: Any = (
+                    int(val_str, 16)
+                    if val_str.startswith("0x")
+                    else (float(val_str) if "." in val_str else int(val_str))
+                )
             except ValueError:
                 val = val_str
             return field, op, val
@@ -111,18 +136,25 @@ def _match_filter(rec: dict, field: str, op: str, val: Any) -> bool:
         except ValueError:
             pass
     try:
-        if op == "==": return rv == val
-        if op == "!=": return rv != val
-        if op == ">":  return rv > val
-        if op == "<":  return rv < val
-        if op == ">=": return rv >= val
-        if op == "<=": return rv <= val
+        if op == "==":
+            return rv == val
+        if op == "!=":
+            return rv != val
+        if op == ">":
+            return rv > val
+        if op == "<":
+            return rv < val
+        if op == ">=":
+            return rv >= val
+        if op == "<=":
+            return rv <= val
     except TypeError:
         return str(rv) == str(val)
     return False
 
 
 # ── Address resolver ────────────────────────────────────────────────────────────────────
+
 
 class AddressResolver:
     def __init__(self, binary: str | None):
@@ -135,7 +167,9 @@ class AddressResolver:
         try:
             result = subprocess.run(
                 [sys.executable, "-m", "retools.funcinfo", self.binary, addr],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             for line in result.stdout.splitlines():
                 if "func_start" in line.lower() or "name" in line.lower():
@@ -158,13 +192,15 @@ class AddressResolver:
 
 # ── Matrix classifier ─────────────────────────────────────────────────────────────────────
 
+
 def classify_matrix(floats: list[float]) -> str:
     if len(floats) != MATRIX_FLOAT_COUNT:
         return "non-4x4"
     m = floats
     is_ident = all(
         abs(m[i * 4 + j] - (1.0 if i == j else 0.0)) < 0.001
-        for i in range(4) for j in range(4)
+        for i in range(4)
+        for j in range(4)
     )
     if is_ident:
         return "identity"
@@ -176,29 +212,50 @@ def classify_matrix(floats: list[float]) -> str:
         return "zero"
 
     is_translation_only = (
-        abs(m[0] - 1.0) < 0.001 and abs(m[5] - 1.0) < 0.001 and
-        abs(m[10] - 1.0) < 0.001 and abs(m[15] - 1.0) < 0.001 and
-        abs(m[1]) < 0.001 and abs(m[2]) < 0.001 and abs(m[4]) < 0.001 and
-        abs(m[6]) < 0.001 and abs(m[8]) < 0.001 and abs(m[9]) < 0.001 and
-        (abs(m[12]) > 0.001 or abs(m[13]) > 0.001 or abs(m[14]) > 0.001)
+        abs(m[0] - 1.0) < 0.001
+        and abs(m[5] - 1.0) < 0.001
+        and abs(m[10] - 1.0) < 0.001
+        and abs(m[15] - 1.0) < 0.001
+        and abs(m[1]) < 0.001
+        and abs(m[2]) < 0.001
+        and abs(m[4]) < 0.001
+        and abs(m[6]) < 0.001
+        and abs(m[8]) < 0.001
+        and abs(m[9]) < 0.001
+        and (abs(m[12]) > 0.001 or abs(m[13]) > 0.001 or abs(m[14]) > 0.001)
     )
     if is_translation_only:
         return "translation"
 
     diag_only = (
-        abs(m[1]) < 0.001 and abs(m[2]) < 0.001 and abs(m[3]) < 0.001 and
-        abs(m[4]) < 0.001 and abs(m[6]) < 0.001 and abs(m[7]) < 0.001 and
-        abs(m[8]) < 0.001 and abs(m[9]) < 0.001 and abs(m[11]) < 0.001 and
-        abs(m[12]) < 0.001 and abs(m[13]) < 0.001 and abs(m[14]) < 0.001
+        abs(m[1]) < 0.001
+        and abs(m[2]) < 0.001
+        and abs(m[3]) < 0.001
+        and abs(m[4]) < 0.001
+        and abs(m[6]) < 0.001
+        and abs(m[7]) < 0.001
+        and abs(m[8]) < 0.001
+        and abs(m[9]) < 0.001
+        and abs(m[11]) < 0.001
+        and abs(m[12]) < 0.001
+        and abs(m[13]) < 0.001
+        and abs(m[14]) < 0.001
     )
     if diag_only:
         return "scale"
 
-    if abs(m[15] - 1.0) < 0.001 and abs(m[3]) < 0.001 and abs(m[7]) < 0.001 and abs(m[11]) < 0.001:
+    if (
+        abs(m[15] - 1.0) < 0.001
+        and abs(m[3]) < 0.001
+        and abs(m[7]) < 0.001
+        and abs(m[11]) < 0.001
+    ):
         upper3 = [m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]]
-        det = (upper3[0] * (upper3[4]*upper3[8] - upper3[5]*upper3[7])
-             - upper3[1] * (upper3[3]*upper3[8] - upper3[5]*upper3[6])
-             + upper3[2] * (upper3[3]*upper3[7] - upper3[4]*upper3[6]))
+        det = (
+            upper3[0] * (upper3[4] * upper3[8] - upper3[5] * upper3[7])
+            - upper3[1] * (upper3[3] * upper3[8] - upper3[5] * upper3[6])
+            + upper3[2] * (upper3[3] * upper3[7] - upper3[4] * upper3[6])
+        )
         if abs(abs(det) - 1.0) < 0.01:
             tags.append("rotation")
         tags.append("affine")
@@ -215,12 +272,13 @@ def format_matrix_4x4(floats: list[float]) -> str:
         return "  " + " ".join(f"{v:10.4f}" for v in floats)
     lines = []
     for row in range(4):
-        vals = floats[row * 4: row * 4 + 4]
+        vals = floats[row * 4 : row * 4 + 4]
         lines.append("  " + " ".join(f"{v:10.4f}" for v in vals))
     return "\n".join(lines)
 
 
 # ── Render state formatting ──────────────────────────────────────────────────────────────────
+
 
 def _fmt_rs(state_id: int, value: int) -> str:
     """Format a render state value with human-readable enum names."""
@@ -233,14 +291,23 @@ def _fmt_rs(state_id: int, value: int) -> str:
         return f"{name} = {D3DCULL_NAMES.get(value, str(value))}"
     if state_id == D3DRS_FILLMODE:
         return f"{name} = {D3DFILL_NAMES.get(value, str(value))}"
-    if state_id in (D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DRS_ALPHATESTENABLE,
-                     D3DRS_ALPHABLENDENABLE, D3DRS_FOGENABLE, D3DRS_STENCILENABLE,
-                     D3DRS_LIGHTING, D3DRS_SRGBWRITEENABLE, D3DRS_SCISSORTESTENABLE):
+    if state_id in (
+        D3DRS_ZENABLE,
+        D3DRS_ZWRITEENABLE,
+        D3DRS_ALPHATESTENABLE,
+        D3DRS_ALPHABLENDENABLE,
+        D3DRS_FOGENABLE,
+        D3DRS_STENCILENABLE,
+        D3DRS_LIGHTING,
+        D3DRS_SRGBWRITEENABLE,
+        D3DRS_SCISSORTESTENABLE,
+    ):
         return f"{name} = {'TRUE' if value else 'FALSE'}"
     return f"{name} = {value} (0x{value:X})"
 
 
 # ── State tracker ───────────────────────────────────────────────────────────────────────
+
 
 class DeviceState:
     def __init__(self):
@@ -275,22 +342,22 @@ class DeviceState:
             start = _int(args.get("StartRegister", 0))
             consts = data.get("constants", [])
             for i in range(0, len(consts), 4):
-                self.vs_constants[start + i // 4] = consts[i:i+4]
+                self.vs_constants[start + i // 4] = consts[i : i + 4]
         elif slot == SLOT["SetPixelShaderConstantF"]:
             start = _int(args.get("StartRegister", 0))
             consts = data.get("constants", [])
             for i in range(0, len(consts), 4):
-                self.ps_constants[start + i // 4] = consts[i:i+4]
+                self.ps_constants[start + i // 4] = consts[i : i + 4]
         elif slot == SLOT["SetVertexShaderConstantI"]:
             start = _int(args.get("StartRegister", 0))
             consts = data.get("constants", [])
             for i in range(0, len(consts), 4):
-                self.vs_constants_i[start + i // 4] = consts[i:i+4]
+                self.vs_constants_i[start + i // 4] = consts[i : i + 4]
         elif slot == SLOT["SetPixelShaderConstantI"]:
             start = _int(args.get("StartRegister", 0))
             consts = data.get("constants", [])
             for i in range(0, len(consts), 4):
-                self.ps_constants_i[start + i // 4] = consts[i:i+4]
+                self.ps_constants_i[start + i // 4] = consts[i : i + 4]
         elif slot == SLOT["SetTexture"]:
             stage = _int(args.get("Stage", 0))
             self.textures[stage] = args.get("pTexture", "NULL")
@@ -307,7 +374,9 @@ class DeviceState:
         elif slot == SLOT["SetStreamSource"]:
             stream = _int(args.get("StreamNumber", 0))
             self.stream_sources[stream] = (
-                args.get("pStreamData"), _int(args.get("Stride", 0)))
+                args.get("pStreamData"),
+                _int(args.get("Stride", 0)),
+            )
         elif slot == SLOT["SetIndices"]:
             self.indices = args.get("pIndexData")
         elif slot in (SLOT["SetTransform"], SLOT["MultiplyTransform"]):
@@ -326,7 +395,8 @@ class DeviceState:
 
     def snapshot(self) -> dict:
         return {
-            "vs": self.vs, "ps": self.ps,
+            "vs": self.vs,
+            "ps": self.ps,
             "textures": dict(self.textures),
             "render_states": dict(self.render_states),
             "render_targets": dict(self.render_targets),
@@ -338,7 +408,9 @@ class DeviceState:
             "vs_constants": {k: list(v) for k, v in self.vs_constants.items()},
             "ps_constants": {k: list(v) for k, v in self.ps_constants.items()},
             "sampler_states": {k: dict(v) for k, v in self.sampler_states.items()},
-            "texture_stage_states": {k: dict(v) for k, v in self.texture_stage_states.items()},
+            "texture_stage_states": {
+                k: dict(v) for k, v in self.texture_stage_states.items()
+            },
         }
 
 
@@ -354,6 +426,7 @@ def _int(val) -> int:
 
 
 # ── Analysis commands ────────────────────────────────────────────────────────────────────
+
 
 def do_summary(records: list[dict]) -> None:
     frames = set()
@@ -373,21 +446,25 @@ def do_summary(records: list[dict]) -> None:
     runtime_count = len(records) - init_count
     real_frames = sorted(f for f in frames if f >= 0)
 
-    print(f"\n=== Trace Summary ===")
+    print("\n=== Trace Summary ===")
     print(f"  Total records:    {len(records)}")
     print(f"  Init records:     {init_count}")
     print(f"  Runtime records:  {runtime_count}")
-    print(f"  Frames:           {len(real_frames)} ({', '.join(str(f) for f in real_frames[:10])})")
+    print(
+        f"  Frames:           {len(real_frames)} ({', '.join(str(f) for f in real_frames[:10])})"
+    )
     if real_frames:
         per_frame = runtime_count / len(real_frames)
         print(f"  Avg calls/frame:  {per_frame:.0f}")
-    print(f"  Empty backtraces: {bt_empty} ({100*bt_empty/max(len(records),1):.1f}%)")
+    print(
+        f"  Empty backtraces: {bt_empty} ({100 * bt_empty / max(len(records), 1):.1f}%)"
+    )
 
-    print(f"\n  By category:")
+    print("\n  By category:")
     for cat, count in categories.most_common():
         print(f"    {cat:12s}  {count:6d}")
 
-    print(f"\n  Top 20 methods:")
+    print("\n  Top 20 methods:")
     for name, count in method_counts.most_common(20):
         print(f"    {name:35s}  {count:6d}")
 
@@ -408,7 +485,9 @@ def do_hotpaths(records: list[dict], top: int, resolver: AddressResolver) -> Non
         print(f"  {count:5d}x  {path}")
 
 
-def do_callers(records: list[dict], method: str, top: int, resolver: AddressResolver) -> None:
+def do_callers(
+    records: list[dict], method: str, top: int, resolver: AddressResolver
+) -> None:
     caller_counts: Counter = Counter()
     for r in records:
         if r.get("method") == method:
@@ -438,7 +517,7 @@ def do_render_loop(records: list[dict], resolver: AddressResolver) -> None:
 
     candidates.sort(key=lambda x: (-x[1], -x[0]))
 
-    print(f"\n=== Render Loop Candidates ===")
+    print("\n=== Render Loop Candidates ===")
     for hits, depth, addr in candidates[:10]:
         label = resolver.resolve(addr)
         print(f"  depth {depth:2d}  hits {hits:6d}  {label}")
@@ -459,28 +538,30 @@ def do_state_at(records: list[dict], target_seq: int) -> None:
     print(f"  VS: {snap['vs']}")
     print(f"  PS: {snap['ps']}")
     print(f"  Vertex Decl: {snap['vertex_decl']}")
-    print(f"  FVF: 0x{snap['fvf']:08X}" if snap['fvf'] else "  FVF: (none)")
+    print(f"  FVF: 0x{snap['fvf']:08X}" if snap["fvf"] else "  FVF: (none)")
     print(f"  Render Targets: {snap['render_targets']}")
     print(f"  Depth Stencil: {snap['depth_stencil']}")
     print(f"  Textures: {snap['textures']}")
     print(f"  Render States ({len(snap['render_states'])} set):")
-    for k, v in sorted(snap['render_states'].items()):
+    for k, v in sorted(snap["render_states"].items()):
         print(f"    {_fmt_rs(k, v)}")
-    if snap['sampler_states']:
-        print(f"  Sampler States:")
-        for sampler, states in sorted(snap['sampler_states'].items()):
+    if snap["sampler_states"]:
+        print("  Sampler States:")
+        for sampler, states in sorted(snap["sampler_states"].items()):
             print(f"    Sampler[{sampler}]: {states}")
-    if snap['texture_stage_states']:
-        print(f"  Texture Stage States:")
-        for stage, states in sorted(snap['texture_stage_states'].items()):
+    if snap["texture_stage_states"]:
+        print("  Texture Stage States:")
+        for stage, states in sorted(snap["texture_stage_states"].items()):
             print(f"    Stage[{stage}]: {states}")
 
 
 def do_matrix_flow(records: list[dict], resolver: AddressResolver) -> None:
     groups: defaultdict[str, list] = defaultdict(list)
     for r in records:
-        if r["slot"] not in (SLOT["SetVertexShaderConstantF"],
-                              SLOT["SetPixelShaderConstantF"]):
+        if r["slot"] not in (
+            SLOT["SetVertexShaderConstantF"],
+            SLOT["SetPixelShaderConstantF"],
+        ):
             continue
         bt = r.get("backtrace", [])
         caller = bt[0] if bt else "unknown"
@@ -489,12 +570,18 @@ def do_matrix_flow(records: list[dict], resolver: AddressResolver) -> None:
         start_reg = _int(args.get("StartRegister", 0))
         count = _int(args.get("Vector4fCount", 0))
         consts = data.get("constants", [])
-        groups[caller].append({
-            "method": r["method"], "startReg": start_reg, "count": count,
-            "constants": consts, "seq": r.get("seq", 0), "frame": r.get("frame", 0),
-        })
+        groups[caller].append(
+            {
+                "method": r["method"],
+                "startReg": start_reg,
+                "count": count,
+                "constants": consts,
+                "seq": r.get("seq", 0),
+                "frame": r.get("frame", 0),
+            }
+        )
 
-    print(f"\n=== Matrix / Constant Flow ===")
+    print("\n=== Matrix / Constant Flow ===")
     for caller, uploads in sorted(groups.items(), key=lambda x: -len(x[1])):
         label = resolver.resolve(caller)
         print(f"\n  Caller: {label}  ({len(uploads)} uploads)")
@@ -504,7 +591,9 @@ def do_matrix_flow(records: list[dict], resolver: AddressResolver) -> None:
             if key in seen:
                 continue
             seen.add(key)
-            print(f"    c{u['startReg']}..c{u['startReg'] + u['count'] - 1} ({u['count']} vec4)")
+            print(
+                f"    c{u['startReg']}..c{u['startReg'] + u['count'] - 1} ({u['count']} vec4)"
+            )
             if len(u["constants"]) == MATRIX_FLOAT_COUNT:
                 cls = classify_matrix(u["constants"])
                 print(f"    Classification: {cls}")
@@ -517,8 +606,12 @@ def do_render_passes(records: list[dict]) -> None:
     runtime = [r for r in records if r.get("frame", -1) >= 0]
     passes = []
     current_pass: dict[str, Any] = {
-        "rt": "default", "draws": 0, "shaders": set(),
-        "start_seq": 0, "clear_flags": 0, "type": "unknown",
+        "rt": "default",
+        "draws": 0,
+        "shaders": set(),
+        "start_seq": 0,
+        "clear_flags": 0,
+        "type": "unknown",
     }
 
     for r in runtime:
@@ -532,8 +625,12 @@ def do_render_passes(records: list[dict]) -> None:
                 passes.append(current_pass)
             rt = args.get("pRT", "NULL")
             current_pass = {
-                "rt": rt, "draws": 0, "shaders": set(),
-                "start_seq": r["seq"], "clear_flags": 0, "type": "unknown",
+                "rt": rt,
+                "draws": 0,
+                "shaders": set(),
+                "start_seq": r["seq"],
+                "clear_flags": 0,
+                "type": "unknown",
             }
         elif slot == SLOT["Clear"]:
             flags = _int(data.get("Flags", args.get("Flags", 0)))
@@ -541,8 +638,12 @@ def do_render_passes(records: list[dict]) -> None:
                 current_pass["type"] = _classify_pass(current_pass)
                 passes.append(current_pass)
                 current_pass = {
-                    "rt": current_pass["rt"], "draws": 0, "shaders": set(),
-                    "start_seq": r["seq"], "clear_flags": flags, "type": "unknown",
+                    "rt": current_pass["rt"],
+                    "draws": 0,
+                    "shaders": set(),
+                    "start_seq": r["seq"],
+                    "clear_flags": flags,
+                    "type": "unknown",
                 }
             else:
                 current_pass["clear_flags"] |= flags
@@ -561,8 +662,10 @@ def do_render_passes(records: list[dict]) -> None:
     for i, p in enumerate(passes):
         flags_str = _fmt_clear_flags(p["clear_flags"])
         shader_count = len(p["shaders"])
-        print(f"  Pass {i:3d}: RT={p['rt']}  draws={p['draws']:4d}  "
-              f"type={p['type']:12s}  clear={flags_str}  shaders={shader_count}")
+        print(
+            f"  Pass {i:3d}: RT={p['rt']}  draws={p['draws']:4d}  "
+            f"type={p['type']:12s}  clear={flags_str}  shaders={shader_count}"
+        )
 
 
 def _classify_pass(p: dict) -> str:
@@ -595,7 +698,7 @@ def do_draw_calls(records: list[dict], resolver: AddressResolver) -> None:
     prev_snap: dict = {}
     draw_idx = 0
 
-    print(f"\n=== Draw Calls ===")
+    print("\n=== Draw Calls ===")
     for r in runtime:
         if r["slot"] in STATE_SET_SLOTS:
             state.apply(r)
@@ -606,8 +709,10 @@ def do_draw_calls(records: list[dict], resolver: AddressResolver) -> None:
             args = r.get("args", {})
             prim_type = _int(args.get("PrimitiveType", 0))
 
-            print(f"\n  Draw #{draw_idx} (seq {r['seq']}, frame {r['frame']}) "
-                  f"{r['method']} {D3DPT_NAMES.get(prim_type, str(prim_type))}")
+            print(
+                f"\n  Draw #{draw_idx} (seq {r['seq']}, frame {r['frame']}) "
+                f"{r['method']} {D3DPT_NAMES.get(prim_type, str(prim_type))}"
+            )
             print(f"    Caller: {caller}")
             for k, v in args.items():
                 if k == "PrimitiveType":
@@ -658,7 +763,9 @@ def do_classify_draws(records: list[dict]) -> None:
             if rs.get(D3DRS_ALPHABLENDENABLE, 0):
                 src = rs.get(D3DRS_SRCBLEND, 0)
                 dst = rs.get(D3DRS_DESTBLEND, 0)
-                tags.append(f"alpha-blended({D3DBLEND_NAMES.get(src,'?')},{D3DBLEND_NAMES.get(dst,'?')})")
+                tags.append(
+                    f"alpha-blended({D3DBLEND_NAMES.get(src, '?')},{D3DBLEND_NAMES.get(dst, '?')})"
+                )
             if rs.get(D3DRS_ALPHATESTENABLE, 0):
                 tags.append("alpha-tested")
             if not rs.get(D3DRS_ZWRITEENABLE, 1):
@@ -684,15 +791,15 @@ def do_classify_draws(records: list[dict]) -> None:
             for t in tags:
                 tags_count[t] += 1
 
-    print(f"\n=== Draw Classification ===")
+    print("\n=== Draw Classification ===")
     for tag, count in tags_count.most_common():
         print(f"  {tag:40s}  {count:5d} draws")
 
-    print(f"\n  By draw method:")
+    print("\n  By draw method:")
     for m, count in method_count.most_common():
         print(f"    {m:10s}  {count:5d}")
 
-    print(f"\n  By vertex shader:")
+    print("\n  By vertex shader:")
     for vs, count in vs_count.most_common():
         print(f"    {vs:18s}  {count:5d}")
 
@@ -758,10 +865,12 @@ def do_redundant(records: list[dict]) -> None:
         if r["slot"] in GEOMETRY_DRAW_SLOTS:
             last_state.clear()
 
-    print(f"\n=== Redundant State Calls ===")
+    print("\n=== Redundant State Calls ===")
     print(f"  Total Set* calls: {total_sets}")
     total_redundant = sum(redundant.values())
-    print(f"  Redundant:        {total_redundant} ({100*total_redundant/max(total_sets,1):.1f}%)")
+    print(
+        f"  Redundant:        {total_redundant} ({100 * total_redundant / max(total_sets, 1):.1f}%)"
+    )
     for method, count in redundant.most_common(20):
         print(f"    {method:35s}  {count:5d}")
 
@@ -778,7 +887,7 @@ def do_texture_freq(records: list[dict]) -> None:
             tex_counts[tex] += 1
             tex_stages[tex].add(stage)
 
-    print(f"\n=== Texture Binding Frequency (top 30) ===")
+    print("\n=== Texture Binding Frequency (top 30) ===")
     for tex, count in tex_counts.most_common(30):
         stages = sorted(tex_stages[tex])
         print(f"  {tex}  bound {count}x  stages: {stages}")
@@ -797,19 +906,27 @@ def do_rt_graph(records: list[dict]) -> None:
         elif r["slot"] == SLOT["SetTexture"]:
             tex = r.get("args", {}).get("pTexture", "NULL")
             if tex in rt_set:
-                edges.append((tex, current_rt, f"stage_{_int(r.get('args',{}).get('Stage',0))}"))
+                edges.append(
+                    (
+                        tex,
+                        current_rt,
+                        f"stage_{_int(r.get('args', {}).get('Stage', 0))}",
+                    )
+                )
 
-    print(f"\n=== Render Target Dependency Graph ===")
+    print("\n=== Render Target Dependency Graph ===")
     print(f"  Render targets: {len(rt_set)}")
     unique_edges = list(set(edges))
     print(f"  RT->Texture edges: {len(unique_edges)}")
     for src_rt, dst_rt, stage in unique_edges[:30]:
-        print(f"    {src_rt} rendered-to -> sampled as {stage} while drawing to {dst_rt}")
+        print(
+            f"    {src_rt} rendered-to -> sampled as {stage} while drawing to {dst_rt}"
+        )
 
     if unique_edges:
-        print(f"\n  Mermaid diagram:")
-        print(f"  ```mermaid")
-        print(f"  flowchart LR")
+        print("\n  Mermaid diagram:")
+        print("  ```mermaid")
+        print("  flowchart LR")
         seen = set()
         for src_rt, dst_rt, stage in unique_edges:
             safe_src = src_rt.replace("0x", "RT_")
@@ -818,7 +935,7 @@ def do_rt_graph(records: list[dict]) -> None:
             if edge_key not in seen:
                 print(f"    {safe_src} --> {safe_dst}")
                 seen.add(edge_key)
-        print(f"  ```")
+        print("  ```")
 
 
 def do_shader_map(records: list[dict], fxc_path: str | None) -> None:
@@ -835,8 +952,10 @@ def do_shader_map(records: list[dict], fxc_path: str | None) -> None:
             if bytecode:
                 kind = "VS" if r["slot"] == SLOT["CreateVertexShader"] else "PS"
                 shaders[bytecode[:32]] = {
-                    "kind": kind, "bytecode": bytecode,
-                    "handle": handle, "slot": r["slot"],
+                    "kind": kind,
+                    "bytecode": bytecode,
+                    "handle": handle,
+                    "slot": r["slot"],
                     "disasm": disasm,
                 }
                 if handle:
@@ -846,16 +965,20 @@ def do_shader_map(records: list[dict], fxc_path: str | None) -> None:
             kind = "VS" if r["slot"] == SLOT["SetVertexShader"] else "PS"
             shader_usage[f"{kind}:{ptr}"] += 1
 
-    print(f"\n=== Shader Map ===")
+    print("\n=== Shader Map ===")
     print(f"  Unique shaders captured: {len(shaders)}")
     print(f"  Handle->bytecode links: {len(handle_to_bc)}")
     disasm_count = sum(1 for s in shaders.values() if s.get("disasm"))
     print(f"  Shaders with disassembly: {disasm_count}/{len(shaders)}")
-    print(f"\n  Top shader bindings:")
+    print("\n  Top shader bindings:")
     for key, count in shader_usage.most_common(10):
         kind_ptr = key.split(":", 1)
         bc_key = handle_to_bc.get(kind_ptr[1] if len(kind_ptr) > 1 else "", "")
-        bc_info = f" -> {shaders[bc_key]['kind']} {len(shaders[bc_key]['bytecode'])//8} DWORDs" if bc_key in shaders else ""
+        bc_info = (
+            f" -> {shaders[bc_key]['kind']} {len(shaders[bc_key]['bytecode']) // 8} DWORDs"
+            if bc_key in shaders
+            else ""
+        )
         print(f"    {key} set {count}x{bc_info}")
 
     for key, info in shaders.items():
@@ -864,9 +987,11 @@ def do_shader_map(records: list[dict], fxc_path: str | None) -> None:
         bc = info["bytecode"]
         print(f"    Bytecode length: {len(bc) // 8} DWORDs")
 
-        asm_text = info.get("disasm") or _disassemble_shader(bytes.fromhex(bc), fxc_path)
+        asm_text = info.get("disasm") or _disassemble_shader(
+            bytes.fromhex(bc), fxc_path
+        )
         if asm_text:
-            print(f"    Disassembly:")
+            print("    Disassembly:")
             for line in asm_text.splitlines():
                 print(f"      {line}")
             regs = _extract_register_usage(asm_text)
@@ -886,6 +1011,7 @@ def _disassemble_shader(bytecode: bytes, fxc_path: str | None) -> str | None:
 def _disasm_via_d3dcompiler(bytecode: bytes) -> str | None:
     try:
         import ctypes
+
         d3dcompiler = ctypes.windll.d3dcompiler_47
 
         class ID3DBlob_Vtbl(ctypes.Structure):
@@ -925,13 +1051,16 @@ def _disasm_via_d3dcompiler(bytecode: bytes) -> str | None:
 
 def _disasm_via_fxc(bytecode: bytes, fxc_path: str) -> str | None:
     import tempfile
+
     try:
         with tempfile.NamedTemporaryFile(suffix=".cso", delete=False) as tmp:
             tmp.write(bytecode)
             tmp_path = tmp.name
         result = subprocess.run(
             [fxc_path, "/dumpbin", tmp_path],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         Path(tmp_path).unlink(missing_ok=True)
         if result.returncode == 0:
@@ -972,6 +1101,7 @@ def _extract_register_usage(asm_text: str) -> dict[str, list[str]]:
 
 
 # ── Constant provenance ───────────────────────────────────────────────────────────────────────
+
 
 def _parse_ctab_registers(disasm_text: str) -> dict[str, int]:
     """Parse CTAB register table from D3DX disassembly.
@@ -1024,7 +1154,7 @@ def do_const_provenance(records: list[dict], draw_index: int | None) -> None:
     draw_num = 0
     runtime = [r for r in records if r.get("frame", -1) >= 0]
 
-    print(f"\n=== Constant Provenance ===")
+    print("\n=== Constant Provenance ===")
 
     for r in runtime:
         slot = r["slot"]
@@ -1036,12 +1166,12 @@ def do_const_provenance(records: list[dict], draw_index: int | None) -> None:
             start = _int(args.get("StartRegister", 0))
             consts = data.get("constants", [])
             for i in range(0, len(consts), 4):
-                vs_prov[start + i // 4] = (seq, consts[i:i+4])
+                vs_prov[start + i // 4] = (seq, consts[i : i + 4])
         elif slot == SLOT["SetPixelShaderConstantF"]:
             start = _int(args.get("StartRegister", 0))
             consts = data.get("constants", [])
             for i in range(0, len(consts), 4):
-                ps_prov[start + i // 4] = (seq, consts[i:i+4])
+                ps_prov[start + i // 4] = (seq, consts[i : i + 4])
 
         if slot in STATE_SET_SLOTS:
             state.apply(r)
@@ -1060,10 +1190,12 @@ def do_const_provenance(records: list[dict], draw_index: int | None) -> None:
 
             if draw_index is not None:
                 _print_draw_provenance(
-                    draw_num, seq, state, vs_prov, ps_prov, vs_ctab, ps_ctab)
+                    draw_num, seq, state, vs_prov, ps_prov, vs_ctab, ps_ctab
+                )
             else:
                 _print_draw_provenance_compact(
-                    draw_num, seq, state, vs_prov, ps_prov, vs_ctab, ps_ctab)
+                    draw_num, seq, state, vs_prov, ps_prov, vs_ctab, ps_ctab
+                )
 
         draw_num += 1
 
@@ -1072,9 +1204,13 @@ def do_const_provenance(records: list[dict], draw_index: int | None) -> None:
 
 
 def _print_draw_provenance(
-    draw_num: int, seq: int, state: DeviceState,
-    vs_prov: dict, ps_prov: dict,
-    vs_ctab: dict, ps_ctab: dict,
+    draw_num: int,
+    seq: int,
+    state: DeviceState,
+    vs_prov: dict,
+    ps_prov: dict,
+    vs_ctab: dict,
+    ps_ctab: dict,
 ) -> None:
     reg_name_lookup = {}
     for name, reg in vs_ctab.items():
@@ -1090,7 +1226,9 @@ def _print_draw_provenance(
             src_seq, vals = vs_prov[reg]
             name = reg_name_lookup.get(("vs", reg), "")
             name_str = f"  ({name})" if name else ""
-            fvals = ", ".join(f"{v:9.4f}" if isinstance(v, float) else str(v) for v in vals)
+            fvals = ", ".join(
+                f"{v:9.4f}" if isinstance(v, float) else str(v) for v in vals
+            )
             print(f"      c{reg:<3d} = [{fvals}]  set by seq#{src_seq}{name_str}")
 
     if ps_prov:
@@ -1099,14 +1237,20 @@ def _print_draw_provenance(
             src_seq, vals = ps_prov[reg]
             name = reg_name_lookup.get(("ps", reg), "")
             name_str = f"  ({name})" if name else ""
-            fvals = ", ".join(f"{v:9.4f}" if isinstance(v, float) else str(v) for v in vals)
+            fvals = ", ".join(
+                f"{v:9.4f}" if isinstance(v, float) else str(v) for v in vals
+            )
             print(f"      c{reg:<3d} = [{fvals}]  set by seq#{src_seq}{name_str}")
 
 
 def _print_draw_provenance_compact(
-    draw_num: int, seq: int, state: DeviceState,
-    vs_prov: dict, ps_prov: dict,
-    vs_ctab: dict, ps_ctab: dict,
+    draw_num: int,
+    seq: int,
+    state: DeviceState,
+    vs_prov: dict,
+    ps_prov: dict,
+    vs_ctab: dict,
+    ps_ctab: dict,
 ) -> None:
     vs_named = []
     for name, reg in sorted(vs_ctab.items(), key=lambda x: x[1]):
@@ -1152,12 +1296,18 @@ def do_vtx_formats(records: list[dict]) -> None:
         elements = init_decls.get(decl, [])
         if elements:
             for e in elements:
-                usage_name = D3DDECLUSAGE_NAMES.get(e.get("Usage", -1), f"UNKNOWN({e.get('Usage')})")
-                type_name = D3DDECLTYPE_NAMES.get(e.get("Type", -1), f"UNKNOWN({e.get('Type')})")
-                print(f"    Stream{e.get('Stream',0)} +{e.get('Offset',0):3d}  "
-                      f"{type_name:12s}  {usage_name}{e.get('UsageIndex',0)}")
+                usage_name = D3DDECLUSAGE_NAMES.get(
+                    e.get("Usage", -1), f"UNKNOWN({e.get('Usage')})"
+                )
+                type_name = D3DDECLTYPE_NAMES.get(
+                    e.get("Type", -1), f"UNKNOWN({e.get('Type')})"
+                )
+                print(
+                    f"    Stream{e.get('Stream', 0)} +{e.get('Offset', 0):3d}  "
+                    f"{type_name:12s}  {usage_name}{e.get('UsageIndex', 0)}"
+                )
         elif decl != "NULL":
-            print(f"    (elements not captured in init phase)")
+            print("    (elements not captured in init phase)")
 
 
 def do_diff_draws(records: list[dict], seq_a: int, seq_b: int) -> None:
@@ -1187,18 +1337,24 @@ def do_diff_draws(records: list[dict], seq_a: int, seq_b: int) -> None:
         va, vb = snap_a.get(key), snap_b.get(key)
         if va != vb:
             print(f"  {key}: {va} -> {vb}")
-    for stage in sorted(set(snap_a.get("textures", {})) | set(snap_b.get("textures", {}))):
+    for stage in sorted(
+        set(snap_a.get("textures", {})) | set(snap_b.get("textures", {}))
+    ):
         ta = snap_a.get("textures", {}).get(stage)
         tb = snap_b.get("textures", {}).get(stage)
         if ta != tb:
             print(f"  Tex[{stage}]: {ta} -> {tb}")
-    for rs_key in sorted(set(snap_a.get("render_states", {})) | set(snap_b.get("render_states", {}))):
+    for rs_key in sorted(
+        set(snap_a.get("render_states", {})) | set(snap_b.get("render_states", {}))
+    ):
         ra = snap_a.get("render_states", {}).get(rs_key)
         rb = snap_b.get("render_states", {}).get(rs_key)
         if ra != rb:
             name = D3DRS_NAMES.get(rs_key, f"RS[{rs_key}]")
             print(f"  {name}: {ra} -> {rb}")
-    for reg in sorted(set(snap_a.get("vs_constants", {})) | set(snap_b.get("vs_constants", {}))):
+    for reg in sorted(
+        set(snap_a.get("vs_constants", {})) | set(snap_b.get("vs_constants", {}))
+    ):
         ca = snap_a.get("vs_constants", {}).get(reg)
         cb = snap_b.get("vs_constants", {}).get(reg)
         if ca != cb:
@@ -1217,14 +1373,24 @@ def do_diff_frames(records: list[dict], frame_a: int, frame_b: int) -> None:
             if r["slot"] in STATE_SET_SLOTS:
                 state_a.apply(r)
             elif r["slot"] in GEOMETRY_DRAW_SLOTS:
-                draws_a.append({"method": r["method"], "args": r.get("args", {}),
-                                "state": state_a.snapshot()})
+                draws_a.append(
+                    {
+                        "method": r["method"],
+                        "args": r.get("args", {}),
+                        "state": state_a.snapshot(),
+                    }
+                )
         elif f == frame_b:
             if r["slot"] in STATE_SET_SLOTS:
                 state_b.apply(r)
             elif r["slot"] in GEOMETRY_DRAW_SLOTS:
-                draws_b.append({"method": r["method"], "args": r.get("args", {}),
-                                "state": state_b.snapshot()})
+                draws_b.append(
+                    {
+                        "method": r["method"],
+                        "args": r.get("args", {}),
+                        "state": state_b.snapshot(),
+                    }
+                )
 
     print(f"\n=== Frame Diff: Frame {frame_a} vs {frame_b} ===")
     print(f"  Frame {frame_a}: {len(draws_a)} draws")
@@ -1264,11 +1430,11 @@ def do_animate_constants(records: list[dict]) -> None:
         if r["slot"] == SLOT["SetVertexShaderConstantF"]:
             start = _int(args.get("StartRegister", 0))
             for i in range(0, len(consts), 4):
-                vs_per_frame[f][start + i // 4] = consts[i:i+4]
+                vs_per_frame[f][start + i // 4] = consts[i : i + 4]
         elif r["slot"] == SLOT["SetPixelShaderConstantF"]:
             start = _int(args.get("StartRegister", 0))
             for i in range(0, len(consts), 4):
-                ps_per_frame[f][start + i // 4] = consts[i:i+4]
+                ps_per_frame[f][start + i // 4] = consts[i : i + 4]
 
     print(f"\n=== Constant Animation ({len(frames)} frames) ===")
     for label, per_frame in [("VS", vs_per_frame), ("PS", ps_per_frame)]:
@@ -1325,11 +1491,15 @@ def do_pipeline_diagram(records: list[dict]) -> None:
 
         if slot == SLOT["SetRenderTarget"]:
             if current_draws > 0:
-                passes.append({
-                    "rt": current_rt, "draws": current_draws,
-                    "vs": len(current_vs), "ps": len(current_ps),
-                    "clear": current_clear,
-                })
+                passes.append(
+                    {
+                        "rt": current_rt,
+                        "draws": current_draws,
+                        "vs": len(current_vs),
+                        "ps": len(current_ps),
+                        "clear": current_clear,
+                    }
+                )
             current_rt = args.get("pRT", "NULL")
             current_draws = 0
             current_vs = set()
@@ -1349,23 +1519,29 @@ def do_pipeline_diagram(records: list[dict]) -> None:
             rt_as_tex[tex].add(current_rt)
 
     if current_draws > 0:
-        passes.append({
-            "rt": current_rt, "draws": current_draws,
-            "vs": len(current_vs), "ps": len(current_ps),
-            "clear": current_clear,
-        })
+        passes.append(
+            {
+                "rt": current_rt,
+                "draws": current_draws,
+                "vs": len(current_vs),
+                "ps": len(current_ps),
+                "clear": current_clear,
+            }
+        )
 
     all_rts = {p["rt"] for p in passes}
 
-    print(f"\n=== Pipeline Diagram (Mermaid) ===")
-    print(f"```mermaid")
-    print(f"flowchart TB")
+    print("\n=== Pipeline Diagram (Mermaid) ===")
+    print("```mermaid")
+    print("flowchart TB")
     for i, p in enumerate(passes):
         safe_rt = p["rt"].replace("0x", "RT_")
         clear_str = _fmt_clear_flags(p["clear"])
-        print(f"  pass{i}[\"{safe_rt}\\n{p['draws']} draws, {p['vs']}VS/{p['ps']}PS\\nclear: {clear_str}\"]")
+        print(
+            f'  pass{i}["{safe_rt}\\n{p["draws"]} draws, {p["vs"]}VS/{p["ps"]}PS\\nclear: {clear_str}"]'
+        )
         if i > 0:
-            print(f"  pass{i-1} --> pass{i}")
+            print(f"  pass{i - 1} --> pass{i}")
 
     for tex, dst_rts in rt_as_tex.items():
         if tex in all_rts:
@@ -1374,7 +1550,7 @@ def do_pipeline_diagram(records: list[dict]) -> None:
                 if p["rt"] in dst_rts:
                     print(f"  {src_safe} -.->|sampled| pass{idx}")
                     break
-    print(f"```")
+    print("```")
 
 
 def _parse_reg_range(spec: str) -> tuple[str, int, int]:
@@ -1401,7 +1577,9 @@ def do_const_evolution(records: list[dict], range_spec: str) -> None:
     prefix, reg_lo, reg_hi = _parse_reg_range(range_spec)
     is_vs = prefix == "vs"
     label = "VS" if is_vs else "PS"
-    set_slot = SLOT["SetVertexShaderConstantF"] if is_vs else SLOT["SetPixelShaderConstantF"]
+    set_slot = (
+        SLOT["SetVertexShaderConstantF"] if is_vs else SLOT["SetPixelShaderConstantF"]
+    )
     reg_count = reg_hi - reg_lo + 1
 
     runtime = [r for r in records if r.get("frame", -1) >= 0]
@@ -1417,23 +1595,29 @@ def do_const_evolution(records: list[dict], range_spec: str) -> None:
             for i in range(0, len(data), 4):
                 reg = start + i // 4
                 if reg_lo <= reg <= reg_hi:
-                    consts[reg] = data[i:i+4]
+                    consts[reg] = data[i : i + 4]
         elif r["slot"] in GEOMETRY_DRAW_SLOTS:
-            snapshot = {reg: list(consts[reg]) for reg in range(reg_lo, reg_hi + 1) if reg in consts}
+            snapshot = {
+                reg: list(consts[reg])
+                for reg in range(reg_lo, reg_hi + 1)
+                if reg in consts
+            }
             per_draw.append(snapshot)
             draw_seqs.append(r["seq"])
 
     total_draws = len(per_draw)
-    print(f"\n=== Constant Evolution ({label} c{reg_lo}-c{reg_hi}, {total_draws} draws) ===")
+    print(
+        f"\n=== Constant Evolution ({label} c{reg_lo}-c{reg_hi}, {total_draws} draws) ==="
+    )
 
     if total_draws == 0:
         print("  No draws found.")
         return
 
     # Per-register uniqueness
-    print(f"\n  Register stability:")
+    print("\n  Register stability:")
     for reg in range(reg_lo, reg_hi + 1):
-        vals = [tuple(d.get(reg, [0,0,0,0])) for d in per_draw]
+        vals = [tuple(d.get(reg, [0, 0, 0, 0])) for d in per_draw]
         unique = len(set(vals))
         if unique == 1:
             kind = "CONSTANT (same for all draws)"
@@ -1451,19 +1635,22 @@ def do_const_evolution(records: list[dict], range_spec: str) -> None:
         _const_evolution_rotation_analysis(per_draw, draw_seqs, reg_lo, label)
 
     # Show first 5 + last 5 draws' values
-    print(f"\n  Sample values (first 5 draws):")
+    print("\n  Sample values (first 5 draws):")
     for i in range(min(5, total_draws)):
         _print_evolution_sample(per_draw[i], draw_seqs[i], i, reg_lo, reg_hi)
 
     if total_draws > 10:
-        print(f"\n  Sample values (last 5 draws):")
+        print("\n  Sample values (last 5 draws):")
         for i in range(max(0, total_draws - 5), total_draws):
             _print_evolution_sample(per_draw[i], draw_seqs[i], i, reg_lo, reg_hi)
 
 
 def _print_evolution_sample(
-    snap: dict[int, list[float]], seq: int, draw_idx: int,
-    reg_lo: int, reg_hi: int,
+    snap: dict[int, list[float]],
+    seq: int,
+    draw_idx: int,
+    reg_lo: int,
+    reg_hi: int,
 ) -> None:
     vals_str = []
     for reg in range(reg_lo, reg_hi + 1):
@@ -1487,15 +1674,20 @@ def _const_evolution_rotation_analysis(
         r1 = snap.get(reg_lo + 1, [0, 0, 0, 0])
         r2 = snap.get(reg_lo + 2, [0, 0, 0, 0])
         # Round to EPS for grouping
-        key = tuple(round(v / EPS) * EPS for v in [r0[0], r0[1], r0[2],
-                                                     r1[0], r1[1], r1[2],
-                                                     r2[0], r2[1], r2[2]])
+        key = tuple(
+            round(v / EPS) * EPS
+            for v in [r0[0], r0[1], r0[2], r1[0], r1[1], r1[2], r2[0], r2[1], r2[2]]
+        )
         rot_groups[key].append(i)
 
     groups_sorted = sorted(rot_groups.items(), key=lambda x: -len(x[1]))
 
-    print(f"\n  3x3 rotation grouping (c{reg_lo}.xyz, c{reg_lo+1}.xyz, c{reg_lo+2}.xyz):")
-    print(f"    {len(groups_sorted)} unique rotations found across {len(per_draw)} draws")
+    print(
+        f"\n  3x3 rotation grouping (c{reg_lo}.xyz, c{reg_lo + 1}.xyz, c{reg_lo + 2}.xyz):"
+    )
+    print(
+        f"    {len(groups_sorted)} unique rotations found across {len(per_draw)} draws"
+    )
 
     for rank, (rot, indices) in enumerate(groups_sorted[:5]):
         pct = 100 * len(indices) / len(per_draw)
@@ -1518,22 +1710,28 @@ def _const_evolution_rotation_analysis(
             xs = [t[0] for t in translations]
             ys = [t[1] for t in translations]
             zs = [t[2] for t in translations]
-            print(f"      Translation spread: "
-                  f"x=[{min(xs):.1f}, {max(xs):.1f}]  "
-                  f"y=[{min(ys):.1f}, {max(ys):.1f}]  "
-                  f"z=[{min(zs):.1f}, {max(zs):.1f}]")
+            print(
+                f"      Translation spread: "
+                f"x=[{min(xs):.1f}, {max(xs):.1f}]  "
+                f"y=[{min(ys):.1f}, {max(ys):.1f}]  "
+                f"z=[{min(zs):.1f}, {max(zs):.1f}]"
+            )
 
     if len(groups_sorted) > 5:
         remaining = sum(len(v) for _, v in groups_sorted[5:])
         print(f"    ... and {len(groups_sorted) - 5} more groups ({remaining} draws)")
 
     if groups_sorted:
-        dominant_rot = groups_sorted[0][0]
+        groups_sorted[0][0]
         dominant_count = len(groups_sorted[0][1])
         if dominant_count > len(per_draw) * 0.5:
-            print(f"\n    ** Dominant rotation ({dominant_count}/{len(per_draw)} draws) "
-                  f"is likely the VIEW matrix rotation component.")
-            print(f"       Objects in this group have identity World rotation (axis-aligned geometry).")
+            print(
+                f"\n    ** Dominant rotation ({dominant_count}/{len(per_draw)} draws) "
+                f"is likely the VIEW matrix rotation component."
+            )
+            print(
+                "       Objects in this group have identity World rotation (axis-aligned geometry)."
+            )
 
 
 def do_state_snapshot(records: list[dict], draw_index: int) -> None:
@@ -1584,8 +1782,10 @@ def do_state_snapshot(records: list[dict], draw_index: int) -> None:
     bt = draw_rec.get("bt", [])
 
     print(f"\n=== State Snapshot: Draw #{draw_index} ===")
-    print(f"  seq={draw_rec['seq']}  frame={draw_rec.get('frame','?')}  "
-          f"{draw_rec['method']}  {D3DPT_NAMES.get(prim_type, str(prim_type))}")
+    print(
+        f"  seq={draw_rec['seq']}  frame={draw_rec.get('frame', '?')}  "
+        f"{draw_rec['method']}  {D3DPT_NAMES.get(prim_type, str(prim_type))}"
+    )
 
     # Draw args
     for k, v in args.items():
@@ -1594,7 +1794,7 @@ def do_state_snapshot(records: list[dict], draw_index: int) -> None:
 
     # Backtrace
     if bt:
-        print(f"  Backtrace:")
+        print("  Backtrace:")
         for addr in bt[:8]:
             print(f"    0x{addr:08X}" if isinstance(addr, int) else f"    {addr}")
 
@@ -1604,29 +1804,47 @@ def do_state_snapshot(records: list[dict], draw_index: int) -> None:
     vs_disasm = shader_disasm.get(vs_hash, "")
     vs_ctab = _parse_ctab_registers(vs_disasm) if vs_disasm else {}
     if vs_ctab:
-        print(f"    CTAB: {', '.join(f'{n}=c{r}' for n, r in sorted(vs_ctab.items(), key=lambda x: x[1]))}")
+        print(
+            f"    CTAB: {
+                ', '.join(
+                    f'{n}=c{r}' for n, r in sorted(vs_ctab.items(), key=lambda x: x[1])
+                )
+            }"
+        )
 
     print(f"  Pixel Shader: {state.ps}")
     ps_hash = handle_to_hash.get(state.ps, "")
     ps_disasm = shader_disasm.get(ps_hash, "")
     ps_ctab = _parse_ctab_registers(ps_disasm) if ps_disasm else {}
     if ps_ctab:
-        print(f"    CTAB: {', '.join(f'{n}=c{r}' for n, r in sorted(ps_ctab.items(), key=lambda x: x[1]))}")
+        print(
+            f"    CTAB: {
+                ', '.join(
+                    f'{n}=c{r}' for n, r in sorted(ps_ctab.items(), key=lambda x: x[1])
+                )
+            }"
+        )
 
     # Vertex declaration
     print(f"\n  Vertex Declaration: {state.vertex_decl}")
     if state.vertex_decl and state.vertex_decl in init_decls:
         for e in init_decls[state.vertex_decl]:
-            usage_name = D3DDECLUSAGE_NAMES.get(e.get("Usage", -1), f"UNKNOWN({e.get('Usage')})")
-            type_name = D3DDECLTYPE_NAMES.get(e.get("Type", -1), f"UNKNOWN({e.get('Type')})")
-            print(f"    Stream{e.get('Stream',0)} +{e.get('Offset',0):3d}  "
-                  f"{type_name:12s}  {usage_name}{e.get('UsageIndex',0)}")
+            usage_name = D3DDECLUSAGE_NAMES.get(
+                e.get("Usage", -1), f"UNKNOWN({e.get('Usage')})"
+            )
+            type_name = D3DDECLTYPE_NAMES.get(
+                e.get("Type", -1), f"UNKNOWN({e.get('Type')})"
+            )
+            print(
+                f"    Stream{e.get('Stream', 0)} +{e.get('Offset', 0):3d}  "
+                f"{type_name:12s}  {usage_name}{e.get('UsageIndex', 0)}"
+            )
     if state.fvf:
         print(f"  FVF: 0x{state.fvf:08X}")
 
     # Streams and indices
     if state.stream_sources:
-        print(f"\n  Stream Sources:")
+        print("\n  Stream Sources:")
         for stream, (ptr, stride) in sorted(state.stream_sources.items()):
             print(f"    Stream[{stream}]: {ptr}  stride={stride}")
     if state.indices:
@@ -1640,7 +1858,9 @@ def do_state_snapshot(records: list[dict], draw_index: int) -> None:
             vals = state.vs_constants[reg]
             name = reg_name_lookup.get(reg, "")
             name_str = f"  ({name})" if name else ""
-            fvals = " ".join(f"{v:10.4f}" if isinstance(v, float) else f"{str(v):>10}" for v in vals)
+            fvals = " ".join(
+                f"{v:10.4f}" if isinstance(v, float) else f"{str(v):>10}" for v in vals
+            )
             print(f"    c{reg:<3d} = [{fvals}]{name_str}")
 
     # PS Constants with CTAB names
@@ -1651,12 +1871,14 @@ def do_state_snapshot(records: list[dict], draw_index: int) -> None:
             vals = state.ps_constants[reg]
             name = reg_name_lookup.get(reg, "")
             name_str = f"  ({name})" if name else ""
-            fvals = " ".join(f"{v:10.4f}" if isinstance(v, float) else f"{str(v):>10}" for v in vals)
+            fvals = " ".join(
+                f"{v:10.4f}" if isinstance(v, float) else f"{str(v):>10}" for v in vals
+            )
             print(f"    c{reg:<3d} = [{fvals}]{name_str}")
 
     # Textures
     if state.textures:
-        print(f"\n  Textures:")
+        print("\n  Textures:")
         for stage, tex in sorted(state.textures.items()):
             print(f"    Stage[{stage}]: {tex}")
 
@@ -1668,7 +1890,7 @@ def do_state_snapshot(records: list[dict], draw_index: int) -> None:
 
     # Render targets
     if state.render_targets:
-        print(f"\n  Render Targets:")
+        print("\n  Render Targets:")
         for idx, rt in sorted(state.render_targets.items()):
             print(f"    RT[{idx}]: {rt}")
     if state.depth_stencil:
@@ -1676,7 +1898,7 @@ def do_state_snapshot(records: list[dict], draw_index: int) -> None:
 
     # Transforms (if any SetTransform calls were made)
     if state.transforms:
-        print(f"\n  Transforms:")
+        print("\n  Transforms:")
         for ts, matrix in sorted(state.transforms.items()):
             name = D3DTS_NAMES.get(ts, f"state={ts}")
             cls = classify_matrix(matrix) if len(matrix) == MATRIX_FLOAT_COUNT else "?"
@@ -1686,13 +1908,13 @@ def do_state_snapshot(records: list[dict], draw_index: int) -> None:
 
     # Sampler states
     if state.sampler_states:
-        print(f"\n  Sampler States:")
+        print("\n  Sampler States:")
         for sampler, states in sorted(state.sampler_states.items()):
             print(f"    Sampler[{sampler}]: {dict(states)}")
 
     # Texture stage states
     if state.texture_stage_states:
-        print(f"\n  Texture Stage States:")
+        print("\n  Texture Stage States:")
         for stage, states in sorted(state.texture_stage_states.items()):
             print(f"    Stage[{stage}]: {dict(states)}")
 
@@ -1716,18 +1938,27 @@ def do_transform_calls(records: list[dict]) -> None:
             data = r.get("data", {})
             state = _int(args.get("State", 0))
             matrix = data.get("matrix", [])
-            transform_calls.append({
-                "seq": r["seq"], "frame": r.get("frame", "?"),
-                "state": state, "matrix": matrix,
-                "draws_before": draw_count, "svcfs_before": svcf_count,
-                "bt": r.get("bt", [])[:5],
-            })
+            transform_calls.append(
+                {
+                    "seq": r["seq"],
+                    "frame": r.get("frame", "?"),
+                    "state": state,
+                    "matrix": matrix,
+                    "draws_before": draw_count,
+                    "svcfs_before": svcf_count,
+                    "bt": r.get("bt", [])[:5],
+                }
+            )
         elif slot == SLOT["SetViewport"]:
             args = r.get("args", {})
-            viewport_calls.append({
-                "seq": r["seq"], "frame": r.get("frame", "?"),
-                "args": args, "draws_before": draw_count,
-            })
+            viewport_calls.append(
+                {
+                    "seq": r["seq"],
+                    "frame": r.get("frame", "?"),
+                    "args": args,
+                    "draws_before": draw_count,
+                }
+            )
 
     # Also scan init records
     init_transforms = []
@@ -1737,77 +1968,104 @@ def do_transform_calls(records: list[dict]) -> None:
         if r["slot"] == SLOT["SetTransform"]:
             args = r.get("args", {})
             data = r.get("data", {})
-            init_transforms.append({
-                "seq": r["seq"],
-                "state": _int(args.get("State", 0)),
-                "matrix": data.get("matrix", []),
-            })
+            init_transforms.append(
+                {
+                    "seq": r["seq"],
+                    "state": _int(args.get("State", 0)),
+                    "matrix": data.get("matrix", []),
+                }
+            )
 
     total_draws = draw_count
 
-    print(f"\n=== Transform Analysis ===")
+    print("\n=== Transform Analysis ===")
 
     # Init-phase transforms
     if init_transforms:
         print(f"\n  Init-phase SetTransform ({len(init_transforms)} calls):")
         for t in init_transforms:
             name = D3DTS_NAMES.get(t["state"], f"state={t['state']}")
-            cls = classify_matrix(t["matrix"]) if len(t["matrix"]) == MATRIX_FLOAT_COUNT else "?"
+            cls = (
+                classify_matrix(t["matrix"])
+                if len(t["matrix"]) == MATRIX_FLOAT_COUNT
+                else "?"
+            )
             print(f"    seq={t['seq']:6d}  {name:16s}  {cls}")
             if len(t["matrix"]) == MATRIX_FLOAT_COUNT:
                 print(format_matrix_4x4(t["matrix"]))
     else:
-        print(f"\n  Init-phase SetTransform: none")
+        print("\n  Init-phase SetTransform: none")
 
     # Runtime transforms
     if transform_calls:
-        print(f"\n  Runtime SetTransform ({len(transform_calls)} calls, {total_draws} total draws):")
+        print(
+            f"\n  Runtime SetTransform ({len(transform_calls)} calls, {total_draws} total draws):"
+        )
         for t in transform_calls:
             name = D3DTS_NAMES.get(t["state"], f"state={t['state']}")
-            cls = classify_matrix(t["matrix"]) if len(t["matrix"]) == MATRIX_FLOAT_COUNT else "?"
+            cls = (
+                classify_matrix(t["matrix"])
+                if len(t["matrix"]) == MATRIX_FLOAT_COUNT
+                else "?"
+            )
             pct_draws = 100 * t["draws_before"] / max(total_draws, 1)
-            print(f"    seq={t['seq']:6d} frame={t['frame']}  {name:16s}  {cls}  "
-                  f"(after {t['draws_before']}/{total_draws} draws = {pct_draws:.0f}%)")
+            print(
+                f"    seq={t['seq']:6d} frame={t['frame']}  {name:16s}  {cls}  "
+                f"(after {t['draws_before']}/{total_draws} draws = {pct_draws:.0f}%)"
+            )
             if len(t["matrix"]) == MATRIX_FLOAT_COUNT:
                 print(format_matrix_4x4(t["matrix"]))
             bt = t["bt"]
             if bt:
-                bt_str = " -> ".join(f"0x{a:08X}" if isinstance(a, int) else str(a) for a in bt)
+                bt_str = " -> ".join(
+                    f"0x{a:08X}" if isinstance(a, int) else str(a) for a in bt
+                )
                 print(f"      bt: [{bt_str}]")
     else:
-        print(f"\n  Runtime SetTransform: none")
+        print("\n  Runtime SetTransform: none")
 
     # Diagnosis
-    print(f"\n  Diagnosis:")
+    print("\n  Diagnosis:")
     if not transform_calls and not init_transforms:
-        print(f"    Game NEVER calls SetTransform.")
-        print(f"    -> Transforms are entirely in shader constants.")
-        print(f"    -> Must decompose from SetVertexShaderConstantF data.")
+        print("    Game NEVER calls SetTransform.")
+        print("    -> Transforms are entirely in shader constants.")
+        print("    -> Must decompose from SetVertexShaderConstantF data.")
     elif transform_calls:
         all_identity = all(
             classify_matrix(t["matrix"]) == "identity"
-            for t in transform_calls if len(t["matrix"]) == MATRIX_FLOAT_COUNT
+            for t in transform_calls
+            if len(t["matrix"]) == MATRIX_FLOAT_COUNT
         )
-        all_post_draw = all(t["draws_before"] >= total_draws * 0.95 for t in transform_calls)
+        all_post_draw = all(
+            t["draws_before"] >= total_draws * 0.95 for t in transform_calls
+        )
         if all_identity:
-            print(f"    All runtime SetTransform calls set IDENTITY matrices.")
-            print(f"    -> Game resets transforms but doesn't use FFP pipeline for rendering.")
-            print(f"    -> Transforms are in shader constants (SetVertexShaderConstantF).")
+            print("    All runtime SetTransform calls set IDENTITY matrices.")
+            print(
+                "    -> Game resets transforms but doesn't use FFP pipeline for rendering."
+            )
+            print(
+                "    -> Transforms are in shader constants (SetVertexShaderConstantF)."
+            )
         elif all_post_draw:
-            print(f"    SetTransform calls happen AFTER all draws (cleanup/reset).")
-            print(f"    -> Not used for actual rendering.")
+            print("    SetTransform calls happen AFTER all draws (cleanup/reset).")
+            print("    -> Not used for actual rendering.")
         else:
             unique_states = set(t["state"] for t in transform_calls)
             state_names = [D3DTS_NAMES.get(s, str(s)) for s in sorted(unique_states)]
-            print(f"    SetTransform IS used during rendering: {', '.join(state_names)}")
-            print(f"    -> These can be intercepted directly for FFP conversion.")
+            print(
+                f"    SetTransform IS used during rendering: {', '.join(state_names)}"
+            )
+            print("    -> These can be intercepted directly for FFP conversion.")
 
     # Viewport analysis
     if viewport_calls:
         print(f"\n  SetViewport ({len(viewport_calls)} calls):")
         for v in viewport_calls[:10]:
-            print(f"    seq={v['seq']:6d} frame={v['frame']}  {v['args']}  "
-                  f"(after {v['draws_before']} draws)")
+            print(
+                f"    seq={v['seq']:6d} frame={v['frame']}  {v['args']}  "
+                f"(after {v['draws_before']} draws)"
+            )
         if len(viewport_calls) > 10:
             print(f"    ... and {len(viewport_calls) - 10} more")
 
@@ -1836,6 +2094,7 @@ def do_export_csv(records: list[dict], output: str) -> None:
 
 
 # ── Main dispatch ──────────────────────────────────────────────────────────────────────
+
 
 def run_analysis(args: argparse.Namespace) -> None:
     if not Path(args.file).exists():
