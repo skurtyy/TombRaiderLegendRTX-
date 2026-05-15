@@ -7,19 +7,18 @@ import sys
 import time
 from pathlib import Path
 
-from PIL import Image
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GAME_DIR = REPO_ROOT / "Tomb Raider Legend"
 
 sys.path.insert(0, str(REPO_ROOT))
 
-from gamepilot.capture import capture, image_to_bytes
-from gamepilot.vision import GameState, classify_state, decide_action
-from gamepilot.controller import execute_action
-from gamepilot.states.handlers import pre_process
-from gamepilot.session import Session
-from livetools.gamectl import find_hwnd_by_exe
+from gamepilot.capture import capture, image_to_bytes  # noqa: E402
+from gamepilot.vision import GameState, classify_state, decide_action  # noqa: E402
+from gamepilot.controller import execute_action  # noqa: E402
+from gamepilot.states.handlers import pre_process  # noqa: E402
+from gamepilot.session import Session  # noqa: E402
+from livetools.gamectl import find_hwnd_by_exe  # noqa: E402
 
 MAX_STEPS = 200
 CAPTURE_INTERVAL = 0.5  # seconds between captures when idle
@@ -163,10 +162,10 @@ def _run_agent_inner(
     is_shutdown,
 ) -> dict:
     print("=" * 60)
-    print(f"  GAMEPILOT — Vision-Controlled Game Agent")
+    print("  GAMEPILOT — Vision-Controlled Game Agent")
     print(f"  Goal: {goal}")
     if dry_run:
-        print(f"  Mode: DRY RUN (no game interaction)")
+        print("  Mode: DRY RUN (no game interaction)")
     print(f"  Session: {session.session_dir}")
     print("=" * 60)
 
