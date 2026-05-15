@@ -98,3 +98,14 @@ def test_decide_action(mock_call):
     assert action["action"] == "key"
     assert action["args"]["name"] == "RETURN"
     assert action["reasoning"] == "select new game"
+
+def test_extract_json_markdown_invalid():
+    # Test an invalid markdown block
+    text = "```json\nnot valid json\n```"
+    assert _extract_json(text) is None
+
+def test_extract_json_markdown_fallback():
+    # Test that it continues to the next block if the first is invalid
+    data = {"key": "value"}
+    text = f"```\nbad data\n```\nHere is the real one:\n```json\n{json.dumps(data)}\n```"
+    assert _extract_json(text) == data
