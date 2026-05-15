@@ -38,7 +38,7 @@ jobs:
           set -e
           gh api -H 'Accept: application/vnd.github.v3.diff' "repos/$REPO/pulls/$PR_NUMBER" > /tmp/pr.diff
           python <<'PYEOF'
-          import json, os, urllib.request, subprocess
+          import json, os, urllib.request, urllib.error, subprocess
           from pathlib import Path
           diff = Path('/tmp/pr.diff').read_text(encoding='utf-8', errors='replace')[:80000]
           sys = ('Classify this pull request diff risk. Output STRICT JSON with one key `risk` whose value is exactly one of "low","med","high". '
@@ -47,17 +47,24 @@ jobs:
                  'LOW: tests, docs, formatting, small bug fix in isolated function. Output only the JSON.')
           payload = json.dumps({'model': os.environ['CLAUDE_MODEL'], 'max_tokens': 32, 'system': sys,
                                 'messages':[{'role':'user','content': diff or '(empty diff)'}]}).encode()
-          req = urllib.request.Request('https://api.anthropic.com/v1/messages', data=payload, headers={
-              'Content-Type':'application/json','x-api-key': os.environ['ANTHROPIC_API_KEY'],'anthropic-version':'2023-06-01'})
-          with urllib.request.urlopen(req) as r:
-              data = json.loads(r.read())
-          raw = data['content'][0]['text'].strip().strip('`')
-          if raw.startswith('json'):
-              raw = raw[4:].strip()
-          try:
-              risk = json.loads(raw).get('risk','low').lower()
-          except Exception:
-              risk = 'low'
+          risk = 'low'
+          api_key = os.environ.get('ANTHROPIC_API_KEY')
+          if not api_key:
+              print('Anthropic API key missing or empty. Defaulting to low risk.')
+          else:
+              req = urllib.request.Request('https://api.anthropic.com/v1/messages', data=payload, headers={
+                  'Content-Type':'application/json','x-api-key': api_key,'anthropic-version':'2023-06-01'})
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      data = json.loads(r.read())
+                  raw = data['content'][0]['text'].strip().strip('`')
+                  if raw.startswith('json'):
+                      raw = raw[4:].strip()
+                  risk = json.loads(raw).get('risk','low').lower()
+              except urllib.error.HTTPError as e:
+                  print(f"Anthropic API Error: {e.code} {e.reason}")
+              except Exception as e:
+                  print(f"Error checking PR risk: {e}")
           assert risk in ('low','med','high'), risk
           repo = os.environ['REPO']; num = os.environ['PR_NUMBER']; thr = os.environ['THRESHOLD']
           subprocess.run(['gh','pr','edit',num,'--repo',repo,'--add-label',f'risk-{risk}'], check=False)
