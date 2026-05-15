@@ -21,17 +21,19 @@ except ImportError:
     sys.exit("pip install requests")
 
 API_KEY = os.environ.get("LINEAR_API_KEY", "")
-if not API_KEY:
-    sys.exit("Set LINEAR_API_KEY environment variable")
 
-HEADERS = {"Authorization": API_KEY, "Content-Type": "application/json"}
+def get_headers():
+    return {"Authorization": os.environ.get("LINEAR_API_KEY", ""), "Content-Type": "application/json"}
+
 GQL = "https://api.linear.app/graphql"
 MAX_BUILDS = 10
 
 
 def gql(query: str, variables: dict | None = None) -> dict:
+    if not os.environ.get("LINEAR_API_KEY", ""):
+        raise RuntimeError("Set LINEAR_API_KEY environment variable")
     r = requests.post(GQL, json={"query": query, "variables": variables or {}},
-                      headers=HEADERS, timeout=30)
+                      headers=get_headers(), timeout=30)
     r.raise_for_status()
     payload = r.json()
     if "errors" in payload:
@@ -67,6 +69,9 @@ def create_issue(team_id: str, title: str, description: str, label_ids: list[str
 
 
 def main() -> None:
+    if not os.environ.get("LINEAR_API_KEY", ""):
+        sys.exit("Set LINEAR_API_KEY environment variable")
+
     config_path = Path("linear/config.json")
     if not config_path.exists():
         sys.exit("Run linear/setup_linear.py first")
