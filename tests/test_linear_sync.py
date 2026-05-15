@@ -14,7 +14,7 @@ def test_gql_success(mock_post):
 
     mock_post.assert_called_once()
     # Check that post was called with correct arguments
-    args, kwargs = mock_post.call_args
+    _, kwargs = mock_post.call_args
     assert kwargs["json"] == {"query": "query { test }", "variables": {"var1": "val1"}}
     assert result == {"issues": {"nodes": []}}
 
