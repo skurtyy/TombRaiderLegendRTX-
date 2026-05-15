@@ -105,7 +105,7 @@ def check_game_dir() -> CheckResult:
         return CheckResult("Game executable", False, f"trl.exe not found in {GAME_DIR}")
     if not LAUNCHER.exists():
         return CheckResult(
-            "Game launcher", False, f"NvRemixLauncher32.exe not found", fatal=False
+            "Game launcher", False, "NvRemixLauncher32.exe not found", fatal=False
         )
     return CheckResult("Game directory", True, str(GAME_DIR))
 
@@ -151,7 +151,7 @@ def check_livetools() -> CheckResult:
             "livetools", False, "requires Windows (ctypes.windll)", fatal=False
         )
     try:
-        from livetools.gamectl import find_hwnd_by_exe
+        import livetools.gamectl  # noqa: F401
 
         return CheckResult("livetools", True, "gamectl importable")
     except (ImportError, AttributeError) as e:
