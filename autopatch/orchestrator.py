@@ -1,9 +1,9 @@
 """Main autonomous loop — diagnose, hypothesize, patch, test, evaluate, iterate."""
+
 from __future__ import annotations
 
 import json
 import subprocess
-import shutil
 import sys
 import time
 from pathlib import Path
@@ -11,7 +11,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from config import GAME_DIR, NVIDIA_SCREENSHOT_DIR as SCREENSHOTS_SRC
+from config import GAME_DIR, NVIDIA_SCREENSHOT_DIR as SCREENSHOTS_SRC  # noqa: E402
 
 MACROS_FILE = Path(__file__).resolve().parent / "macros.json"
 
@@ -27,12 +27,13 @@ def _collect_screenshots(after_ts: float, limit: int = 3) -> list[Path]:
     """
     if not SCREENSHOTS_SRC.exists():
         return []
-    files = sorted(SCREENSHOTS_SRC.iterdir(),
-                   key=lambda f: f.stat().st_mtime, reverse=True)
+    files = sorted(
+        SCREENSHOTS_SRC.iterdir(), key=lambda f: f.stat().st_mtime, reverse=True
+    )
     return [
-        f for f in files
-        if f.suffix.lower() in (".png", ".jpg", ".bmp")
-        and f.stat().st_mtime > after_ts
+        f
+        for f in files
+        if f.suffix.lower() in (".png", ".jpg", ".bmp") and f.stat().st_mtime > after_ts
     ][:limit]
 
 
@@ -41,10 +42,10 @@ def _kill_game() -> None:
     time.sleep(2)
 
 
-LEVEL_LOAD_FN = 0x00451970   # GAMELOOP_RequestLevelChangeByName
-GAME_TRACKER   = "0x010E5370"  # GameTracker global struct address
-FRAME_COUNTER  = "0x010E5424"  # g_frameCounter (incremented each frame)
-DEFAULT_LEVEL  = "flashback1"  # Peru (Return to Paraiso) — DRM name from ChapterSpec
+LEVEL_LOAD_FN = 0x00451970  # GAMELOOP_RequestLevelChangeByName
+GAME_TRACKER = "0x010E5370"  # GameTracker global struct address
+FRAME_COUNTER = "0x010E5424"  # g_frameCounter (incremented each frame)
+DEFAULT_LEVEL = "flashback1"  # Peru (Return to Paraiso) — DRM name from ChapterSpec
 
 
 def _load_level_via_frida(level_name: str) -> bool:
@@ -64,14 +65,16 @@ def _load_level_via_frida(level_name: str) -> bool:
     name_hex = level_name.encode("ascii").hex() + "00"
     client.send_command({"cmd": "mem_write", "addr": str_addr, "hex": name_hex})
 
-    resp = client.send_command({
-        "cmd": "call",
-        "addr": hex(LEVEL_LOAD_FN),
-        "abi": "default",
-        "retType": "void",
-        "argTypes": ["pointer", "pointer", "int32"],
-        "argValues": [str_addr, GAME_TRACKER, 4],
-    })
+    resp = client.send_command(
+        {
+            "cmd": "call",
+            "addr": hex(LEVEL_LOAD_FN),
+            "abi": "default",
+            "retType": "void",
+            "argTypes": ["pointer", "pointer", "int32"],
+            "argValues": [str_addr, GAME_TRACKER, 4],
+        }
+    )
     if not resp.get("ok"):
         print(f"  [load_level] Call failed: {resp.get('msg')}")
         return False
@@ -115,6 +118,7 @@ def _launch_game() -> int | None:
 
     sys.path.insert(0, str(REPO_ROOT / "patches" / "TombRaiderLegend"))
     from run import set_graphics_config, dismiss_setup_dialog, write_tr7_arg
+
     set_graphics_config()
     write_tr7_arg(chapter=2)
 
@@ -210,9 +214,11 @@ def run(skip_diagnosis: bool = False, dry_run: bool = False) -> None:
     from autopatch.safety import backup_proxy
     from autopatch.hypothesis import generate_from_diagnostic
     from autopatch.patcher import (
-        attach_livetools, detach_livetools,
-        apply_runtime, revert_runtime,
-        promote_to_source, build_and_deploy,
+        attach_livetools,
+        detach_livetools,
+        apply_runtime,
+        promote_to_source,
+        build_and_deploy,
     )
     from autopatch.diagnose import run_diagnostic
 
@@ -222,8 +228,10 @@ def run(skip_diagnosis: bool = False, dry_run: bool = False) -> None:
 
     # Step 1: Load knowledge base
     kb = KnowledgeBase.load()
-    print(f"\n[1] Knowledge base loaded: {len(kb.iterations)} iterations, "
-          f"{len(kb.tried_addrs)} tried addresses")
+    print(
+        f"\n[1] Knowledge base loaded: {len(kb.iterations)} iterations, "
+        f"{len(kb.tried_addrs)} tried addresses"
+    )
 
     # Step 2: Validate evaluator
     print("\n[2] Calibrating screenshot evaluator...")
@@ -236,7 +244,11 @@ def run(skip_diagnosis: bool = False, dry_run: bool = False) -> None:
         return
 
     # Step 3: Diagnostic capture (or load existing)
-    diag_report_path = Path(__file__).resolve().parent / "diagnostic_captures" / "diagnostic_report.json"
+    diag_report_path = (
+        Path(__file__).resolve().parent
+        / "diagnostic_captures"
+        / "diagnostic_report.json"
+    )
     if not skip_diagnosis or not diag_report_path.exists():
         print("\n[3] Running diagnostic capture (near vs far)...")
         _kill_game()
@@ -283,8 +295,10 @@ def run(skip_diagnosis: bool = False, dry_run: bool = False) -> None:
 
     for i, hypothesis in enumerate(hypotheses[:MAX_ITERATIONS]):
         if session_failures >= MAX_ITERATIONS:
-            print(f"\n  {MAX_ITERATIONS} consecutive failures this session "
-                  f"— pausing for human review.")
+            print(
+                f"\n  {MAX_ITERATIONS} consecutive failures this session "
+                f"— pausing for human review."
+            )
             break
 
         iter_id = kb.next_iteration_id()
@@ -297,16 +311,21 @@ def run(skip_diagnosis: bool = False, dry_run: bool = False) -> None:
         hwnd = _launch_game()
         if not hwnd:
             print("  ERROR: Game failed to launch")
-            kb.record_iteration(IterationRecord(
-                id=iter_id, timestamp=time.time(),
-                hypothesis_id=hypothesis.id,
-                description=hypothesis.description,
-                target_addr=hypothesis.target_addr,
-                patch_bytes=hypothesis.patch_bytes.hex(),
-                patch_type="runtime", passed=False, crashed=True,
-                confidence=hypothesis.confidence,
-                notes="Game failed to launch",
-            ))
+            kb.record_iteration(
+                IterationRecord(
+                    id=iter_id,
+                    timestamp=time.time(),
+                    hypothesis_id=hypothesis.id,
+                    description=hypothesis.description,
+                    target_addr=hypothesis.target_addr,
+                    patch_bytes=hypothesis.patch_bytes.hex(),
+                    patch_type="runtime",
+                    passed=False,
+                    crashed=True,
+                    confidence=hypothesis.confidence,
+                    notes="Game failed to launch",
+                )
+            )
             session_failures += 1
             continue
 
@@ -314,36 +333,48 @@ def run(skip_diagnosis: bool = False, dry_run: bool = False) -> None:
         if not attach_livetools():
             print("  ERROR: Failed to attach livetools")
             _kill_game()
-            kb.record_iteration(IterationRecord(
-                id=iter_id, timestamp=time.time(),
-                hypothesis_id=hypothesis.id,
-                description=hypothesis.description,
-                target_addr=hypothesis.target_addr,
-                patch_bytes=hypothesis.patch_bytes.hex(),
-                patch_type="runtime", passed=False, crashed=True,
-                confidence=hypothesis.confidence,
-                notes="Failed to attach livetools",
-            ))
+            kb.record_iteration(
+                IterationRecord(
+                    id=iter_id,
+                    timestamp=time.time(),
+                    hypothesis_id=hypothesis.id,
+                    description=hypothesis.description,
+                    target_addr=hypothesis.target_addr,
+                    patch_bytes=hypothesis.patch_bytes.hex(),
+                    patch_type="runtime",
+                    passed=False,
+                    crashed=True,
+                    confidence=hypothesis.confidence,
+                    notes="Failed to attach livetools",
+                )
+            )
             session_failures += 1
             continue
 
         # 5c: Apply runtime patch
-        print(f"  Applying patch: {hex(hypothesis.target_addr)} <- "
-              f"{hypothesis.patch_bytes.hex()}")
+        print(
+            f"  Applying patch: {hex(hypothesis.target_addr)} <- "
+            f"{hypothesis.patch_bytes.hex()}"
+        )
         patch_ok = apply_runtime(hypothesis.target_addr, hypothesis.patch_bytes)
         if not patch_ok:
             detach_livetools()
             _kill_game()
-            kb.record_iteration(IterationRecord(
-                id=iter_id, timestamp=time.time(),
-                hypothesis_id=hypothesis.id,
-                description=hypothesis.description,
-                target_addr=hypothesis.target_addr,
-                patch_bytes=hypothesis.patch_bytes.hex(),
-                patch_type="runtime", passed=False, crashed=False,
-                confidence=hypothesis.confidence,
-                notes="Failed to write patch bytes",
-            ))
+            kb.record_iteration(
+                IterationRecord(
+                    id=iter_id,
+                    timestamp=time.time(),
+                    hypothesis_id=hypothesis.id,
+                    description=hypothesis.description,
+                    target_addr=hypothesis.target_addr,
+                    patch_bytes=hypothesis.patch_bytes.hex(),
+                    patch_type="runtime",
+                    passed=False,
+                    crashed=False,
+                    confidence=hypothesis.confidence,
+                    notes="Failed to write patch bytes",
+                )
+            )
             session_failures += 1
             continue
 
@@ -354,20 +385,26 @@ def run(skip_diagnosis: bool = False, dry_run: bool = False) -> None:
 
         # 5e: Check if game crashed
         from livetools.gamectl import find_hwnd_by_exe
+
         game_alive = find_hwnd_by_exe("trl.exe") is not None
 
         if not game_alive:
             print("  CRASH — game exited during macro")
-            kb.record_iteration(IterationRecord(
-                id=iter_id, timestamp=time.time(),
-                hypothesis_id=hypothesis.id,
-                description=hypothesis.description,
-                target_addr=hypothesis.target_addr,
-                patch_bytes=hypothesis.patch_bytes.hex(),
-                patch_type="runtime", passed=False, crashed=True,
-                confidence=hypothesis.confidence,
-                notes="Game crashed during evaluation",
-            ))
+            kb.record_iteration(
+                IterationRecord(
+                    id=iter_id,
+                    timestamp=time.time(),
+                    hypothesis_id=hypothesis.id,
+                    description=hypothesis.description,
+                    target_addr=hypothesis.target_addr,
+                    patch_bytes=hypothesis.patch_bytes.hex(),
+                    patch_type="runtime",
+                    passed=False,
+                    crashed=True,
+                    confidence=hypothesis.confidence,
+                    notes="Game crashed during evaluation",
+                )
+            )
             _kill_game()
             session_failures += 1
             continue
@@ -378,39 +415,49 @@ def run(skip_diagnosis: bool = False, dry_run: bool = False) -> None:
         if not screenshots:
             print("  WARNING: No screenshots collected")
             _kill_game()
-            kb.record_iteration(IterationRecord(
-                id=iter_id, timestamp=time.time(),
-                hypothesis_id=hypothesis.id,
-                description=hypothesis.description,
-                target_addr=hypothesis.target_addr,
-                patch_bytes=hypothesis.patch_bytes.hex(),
-                patch_type="runtime", passed=False, crashed=False,
-                confidence=hypothesis.confidence,
-                notes="No screenshots captured",
-            ))
+            kb.record_iteration(
+                IterationRecord(
+                    id=iter_id,
+                    timestamp=time.time(),
+                    hypothesis_id=hypothesis.id,
+                    description=hypothesis.description,
+                    target_addr=hypothesis.target_addr,
+                    patch_bytes=hypothesis.patch_bytes.hex(),
+                    patch_type="runtime",
+                    passed=False,
+                    crashed=False,
+                    confidence=hypothesis.confidence,
+                    notes="No screenshots captured",
+                )
+            )
             session_failures += 1
             continue
 
         verdict = evaluate_screenshots(screenshots)
-        print(f"  Verdict: passed={verdict.passed}, "
-              f"red={verdict.red_visible}, green={verdict.green_visible}, "
-              f"confidence={verdict.confidence:.2f}")
+        print(
+            f"  Verdict: passed={verdict.passed}, "
+            f"red={verdict.red_visible}, green={verdict.green_visible}, "
+            f"confidence={verdict.confidence:.2f}"
+        )
 
         _kill_game()
 
         # 5g: Record result
-        kb.record_iteration(IterationRecord(
-            id=iter_id, timestamp=time.time(),
-            hypothesis_id=hypothesis.id,
-            description=hypothesis.description,
-            target_addr=hypothesis.target_addr,
-            patch_bytes=hypothesis.patch_bytes.hex(),
-            patch_type="runtime",
-            passed=verdict.passed,
-            crashed=False,
-            confidence=float(verdict.confidence),
-            notes=f"red={verdict.red_visible} green={verdict.green_visible}",
-        ))
+        kb.record_iteration(
+            IterationRecord(
+                id=iter_id,
+                timestamp=time.time(),
+                hypothesis_id=hypothesis.id,
+                description=hypothesis.description,
+                target_addr=hypothesis.target_addr,
+                patch_bytes=hypothesis.patch_bytes.hex(),
+                patch_type="runtime",
+                passed=verdict.passed,
+                crashed=False,
+                confidence=float(verdict.confidence),
+                notes=f"red={verdict.red_visible} green={verdict.green_visible}",
+            )
+        )
 
         if not verdict.passed:
             session_failures += 1
@@ -429,7 +476,9 @@ def run(skip_diagnosis: bool = False, dry_run: bool = False) -> None:
             if build_and_deploy():
                 print("  Proxy rebuilt and deployed with winning patch.")
                 print("\n  Run full verification:")
-                print("    python patches/TombRaiderLegend/run.py test --build --randomize")
+                print(
+                    "    python patches/TombRaiderLegend/run.py test --build --randomize"
+                )
             else:
                 print("  WARNING: Proxy build failed after promotion")
             return
