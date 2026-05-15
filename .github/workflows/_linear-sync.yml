@@ -14,6 +14,9 @@ on:
       LINEAR_TEAM_ID:
         required: false
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   sync-to-linear:
     runs-on: ubuntu-latest

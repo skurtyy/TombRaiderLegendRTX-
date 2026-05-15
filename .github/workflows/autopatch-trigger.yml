@@ -22,6 +22,9 @@ on:
         default: 'autopatch'
         type: string
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   autopatch:
     runs-on: windows-latest

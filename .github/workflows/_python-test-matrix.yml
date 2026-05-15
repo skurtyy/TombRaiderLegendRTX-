@@ -30,6 +30,9 @@ on:
         type: string
         default: ''
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   pytest:
     runs-on: ${{ inputs.runs_on }}
@@ -54,6 +57,7 @@ jobs:
       - name: Run pytest
         shell: bash
         run: |
+          export PYTHONPATH="."
           ARGS="-v --tb=short --basetemp=$RUNNER_TEMP/pytest-${{ matrix.python-version }}"
           if [ "${{ inputs.coverage }}" = "true" ]; then ARGS="$ARGS --cov=. --cov-report=xml"; fi
           pytest ${{ inputs.test_dir }} $ARGS
