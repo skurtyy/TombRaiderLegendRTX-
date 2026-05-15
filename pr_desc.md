@@ -1,10 +1,9 @@
-🎯 **What:** The testing gap in `retools/pyghidra_backend.py` has been addressed. The module was previously at ~83% coverage with multiple untested functions including environment path setups, error handling for decompilation, and CLI execution.
+🧹 [Code Health] Remove unused `revert_runtime` and `shutil` imports
 
-📊 **Coverage:**
-* Added tests for `is_analyzed` to correctly check for empty representations (`.rep` dir empty or missing).
-* Added tests for `_ensure_java_env` and `_ensure_ghidra_env` to verify proper detection and assignment of `JAVA_HOME` and `GHIDRA_INSTALL_DIR`.
-* Added test for `_import_pyghidra` failing via `ImportError`.
-* Added tests for `decompile` error paths (`pyghidra` missing, `GHIDRA_INSTALL_DIR` missing, and non-analyzed project).
-* Added execution tests for the CLI (`__main__` entry point) via `runpy`.
+🎯 **What:** Removed unused imports `revert_runtime` from `autopatch.patcher` and `shutil` from `autopatch/orchestrator.py`. Also fixed the `ruff` module level import check on line 13.
 
-✨ **Result:** The `retools/pyghidra_backend.py` module now has 100% test coverage, and its correctness has been comprehensively verified without introducing regressions.
+💡 **Why:** To improve code health by removing dead code, adhering to linting rules, and reducing clutter.
+
+✅ **Verification:** Verified safe by running `ruff check autopatch/orchestrator.py` which returns `All checks passed!` and `PYTHONPATH=. python -m pytest tests/` which returns `228 passed, 19 skipped`. Also ensured git workspace is clean of any test artifacts like `.coverage` or `retools/data/signatures.db`.
+
+✨ **Result:** A cleaner `autopatch/orchestrator.py` module with 0 linter errors and safe removal of unused functionality.
