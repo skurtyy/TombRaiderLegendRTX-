@@ -17,10 +17,10 @@ def test_capture_window_gdi_success(monkeypatch):
     mock_user32 = MagicMock()
     mock_gdi32 = MagicMock()
 
-    monkeypatch.setattr(cap, "wt", mock_wt)
-    monkeypatch.setattr(cap, "ctypes", mock_ctypes)
-    monkeypatch.setattr(cap, "user32", mock_user32)
-    monkeypatch.setattr(cap, "gdi32", mock_gdi32)
+    monkeypatch.setattr(cap, "wt", mock_wt, raising=False)
+    monkeypatch.setattr(cap, "ctypes", mock_ctypes, raising=False)
+    monkeypatch.setattr(cap, "user32", mock_user32, raising=False)
+    monkeypatch.setattr(cap, "gdi32", mock_gdi32, raising=False)
 
     # Mocking BITMAPINFO since it might not be defined if _IS_WINDOWS was False on import
     mock_BITMAPINFO = MagicMock()
@@ -63,10 +63,10 @@ def test_capture_window_gdi_black_frame(monkeypatch):
     mock_user32 = MagicMock()
     mock_gdi32 = MagicMock()
 
-    monkeypatch.setattr(cap, "wt", mock_wt)
-    monkeypatch.setattr(cap, "ctypes", mock_ctypes)
-    monkeypatch.setattr(cap, "user32", mock_user32)
-    monkeypatch.setattr(cap, "gdi32", mock_gdi32)
+    monkeypatch.setattr(cap, "wt", mock_wt, raising=False)
+    monkeypatch.setattr(cap, "ctypes", mock_ctypes, raising=False)
+    monkeypatch.setattr(cap, "user32", mock_user32, raising=False)
+    monkeypatch.setattr(cap, "gdi32", mock_gdi32, raising=False)
 
     mock_BITMAPINFO = MagicMock()
     mock_BITMAPINFOHEADER = MagicMock()
@@ -94,10 +94,10 @@ def test_capture_window_gdi_invalid_dimensions(monkeypatch):
     mock_user32 = MagicMock()
     mock_gdi32 = MagicMock()
 
-    monkeypatch.setattr(cap, "wt", mock_wt)
-    monkeypatch.setattr(cap, "ctypes", mock_ctypes)
-    monkeypatch.setattr(cap, "user32", mock_user32)
-    monkeypatch.setattr(cap, "gdi32", mock_gdi32)
+    monkeypatch.setattr(cap, "wt", mock_wt, raising=False)
+    monkeypatch.setattr(cap, "ctypes", mock_ctypes, raising=False)
+    monkeypatch.setattr(cap, "user32", mock_user32, raising=False)
+    monkeypatch.setattr(cap, "gdi32", mock_gdi32, raising=False)
 
     mock_rect = MagicMock()
     mock_rect.right = 0
@@ -117,10 +117,10 @@ def test_capture_window_gdi_returns_none_when_width_or_height_zero(monkeypatch):
     mock_user32 = MagicMock()
     mock_gdi32 = MagicMock()
 
-    monkeypatch.setattr(cap, "wt", mock_wt)
-    monkeypatch.setattr(cap, "ctypes", mock_ctypes)
-    monkeypatch.setattr(cap, "user32", mock_user32)
-    monkeypatch.setattr(cap, "gdi32", mock_gdi32)
+    monkeypatch.setattr(cap, "wt", mock_wt, raising=False)
+    monkeypatch.setattr(cap, "ctypes", mock_ctypes, raising=False)
+    monkeypatch.setattr(cap, "user32", mock_user32, raising=False)
+    monkeypatch.setattr(cap, "gdi32", mock_gdi32, raising=False)
 
     mock_rect = MagicMock()
     mock_rect.right = 100
