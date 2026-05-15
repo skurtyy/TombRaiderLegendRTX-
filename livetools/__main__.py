@@ -51,7 +51,6 @@ If trace/steptrace/collect time out with 0 results, alt-tab to the game first.
 from __future__ import annotations
 
 import argparse
-import os
 import subprocess
 import sys
 import time
@@ -742,13 +741,8 @@ def cmd_gamectl(args: argparse.Namespace) -> None:
 
 # ── argument parser ────────────────────────────────────────────────────────
 
-def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
-        prog="python -m livetools",
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    sub = p.add_subparsers(dest="command")
+def _add_session_parsers(sub: argparse._SubParsersAction) -> None:
+
 
     # -- session --
     sp = sub.add_parser("attach",
@@ -773,6 +767,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("status",
         help="Show current state: attached process, frozen status, bp count")
 
+def _add_breakpoint_parsers(sub: argparse._SubParsersAction) -> None:
+
+
     # -- breakpoints --
     sp = sub.add_parser("bp",
         help="Manage breakpoints (add / del / list)")
@@ -782,6 +779,9 @@ def build_parser() -> argparse.ArgumentParser:
     bp_del = bp_sub.add_parser("del", help="Remove a breakpoint")
     bp_del.add_argument("addr", help="Address of breakpoint to remove (hex)")
     bp_sub.add_parser("list", help="List all active breakpoints with hit counts")
+
+def _add_watch_parsers(sub: argparse._SubParsersAction) -> None:
+
 
     # -- watch --
     sp = sub.add_parser("watch",
@@ -795,6 +795,9 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter)
     sp.add_argument("--timeout", type=int, default=60,
         help="Seconds to wait before giving up (default: 60)")
+
+def _add_inspection_parsers(sub: argparse._SubParsersAction) -> None:
+
 
     # -- inspection --
     sub.add_parser("regs", help="Print all registers (x86/x64)")
@@ -838,6 +841,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("bt", help="Print stack backtrace")
 
+def _add_control_parsers(sub: argparse._SubParsersAction) -> None:
+
+
     # -- control --
     sp = sub.add_parser("step",
         help="Single-step one instruction (must be frozen at a bp)")
@@ -847,11 +853,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("resume", help="Resume execution (unfreeze from breakpoint)")
 
+def _add_scan_parsers(sub: argparse._SubParsersAction) -> None:
+
+
     # -- scan --
     sp = sub.add_parser("scan", help="Scan process memory for a byte pattern")
     sp.add_argument("pattern", help="Hex byte pattern (e.g. '00 00 80 3F')")
     sp.add_argument("--range", default=None,
         help="Restrict scan to START:SIZE (e.g. 0x400000:0x100000)")
+
+def _add_trace_parsers(sub: argparse._SubParsersAction) -> None:
+
 
     # -- trace --
     sp = sub.add_parser("trace",
@@ -977,6 +989,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--label", action="append", default=None,
         help="Human label: ADDR=NAME (e.g. 0x401000=FuncA)")
 
+def _add_module_parsers(sub: argparse._SubParsersAction) -> None:
+
+
     # -- modules --
     sp = sub.add_parser("modules",
         help="List loaded DLLs with base addresses and sizes",
@@ -991,6 +1006,9 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter)
     sp.add_argument("--filter", default=None,
         help="Case-insensitive substring filter on module name/path")
+
+def _add_hook_parsers(sub: argparse._SubParsersAction) -> None:
+
 
     # -- vishook --
     sp = sub.add_parser("vishook",
@@ -1036,6 +1054,9 @@ def build_parser() -> argparse.ArgumentParser:
     cal_p = dc_sub.add_parser("callers", help="Sample N DIP calls and show caller histogram")
     cal_p.add_argument("count", nargs="?", type=int, default=200, help="Number of calls to sample (default 200)")
 
+def _add_memwatch_parsers(sub: argparse._SubParsersAction) -> None:
+
+
     # -- memwatch --
     sp = sub.add_parser("memwatch",
         help="Hardware memory write watchpoint (catch who writes to an address)",
@@ -1058,6 +1079,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Auto-stop after N hits (default: 20)")
     mw_sub.add_parser("stop", help="Stop the active watchpoint")
     mw_sub.add_parser("read", help="Read captured hits")
+
+def _add_analyze_parsers(sub: argparse._SubParsersAction) -> None:
+
 
     # -- analyze --
     sp = sub.add_parser("analyze",
@@ -1111,6 +1135,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show value distribution histogram for a field path")
     sp.add_argument("--export-csv", default=None,
         help="Export filtered/grouped data as CSV to file")
+
+def _add_gamectl_parsers(sub: argparse._SubParsersAction) -> None:
+
 
     # -- gamectl --
     sp = sub.add_parser("gamectl",
@@ -1172,7 +1199,33 @@ def build_parser() -> argparse.ArgumentParser:
     gc_macros.add_argument("--macro-file", default="macros.json",
         help="Path to macro JSON file (default: macros.json)")
 
+
+
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="python -m livetools",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sub = p.add_subparsers(dest="command")
+    _add_session_parsers(sub)
+    _add_breakpoint_parsers(sub)
+    _add_watch_parsers(sub)
+    _add_inspection_parsers(sub)
+    _add_control_parsers(sub)
+    _add_scan_parsers(sub)
+    _add_trace_parsers(sub)
+    _add_module_parsers(sub)
+    _add_hook_parsers(sub)
+    _add_memwatch_parsers(sub)
+    _add_analyze_parsers(sub)
+    _add_gamectl_parsers(sub)
+
     return p
+
+
 
 
 # ── main ───────────────────────────────────────────────────────────────────
