@@ -18,7 +18,7 @@ from linear.parse_changelog import parse_changelog  # noqa: E402
 try:
     import requests
 except ImportError:
-    sys.exit("pip install requests")
+    pass
 
 API_KEY = os.environ.get("LINEAR_API_KEY", "")
 
@@ -32,6 +32,11 @@ MAX_BUILDS = 10
 def gql(query: str, variables: dict | None = None) -> dict:
     if not os.environ.get("LINEAR_API_KEY", ""):
         raise RuntimeError("Set LINEAR_API_KEY environment variable")
+    try:
+        import requests
+    except ImportError:
+        raise ImportError("pip install requests")
+
     r = requests.post(GQL, json={"query": query, "variables": variables or {}},
                       headers=get_headers(), timeout=30)
     r.raise_for_status()
