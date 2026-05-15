@@ -1,3 +1,7 @@
+---
+name: build-validator
+description: Agent for TRL RTX Remix project.
+---
 # build-validator
 
 ## Role

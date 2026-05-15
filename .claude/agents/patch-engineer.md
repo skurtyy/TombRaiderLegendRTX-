@@ -1,3 +1,7 @@
+---
+name: patch-engineer
+description: Agent for TRL RTX Remix project.
+---
 # patch-engineer
 
 ## Role

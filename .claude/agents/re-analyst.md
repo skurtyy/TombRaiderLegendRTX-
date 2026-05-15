@@ -1,3 +1,7 @@
+---
+name: re-analyst
+description: Agent for TRL RTX Remix project.
+---
 # re-analyst
 
 ## Role

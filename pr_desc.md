@@ -12,3 +12,5 @@ The new `tests_linear/test_sync.py` file covers the following scenarios for `iss
 
 ✨ **Result:**
 Test coverage for `linear/sync.py` has been significantly improved. Refactoring the Linear sync script logic or upgrading its dependencies can now be done with confidence, as regressions in GraphQL query construction and standard issue resolution will be caught.
+
+Additionally, this PR fixes CI failures caused by the `.claude/agents/*.md` validation script failing because a few agent files lacked YAML frontmatter. `build-validator.md`, `patch-engineer.md`, `re-analyst.md`, and `research-scanner.md` have been updated with `name:` and `description:` in their YAML frontmatter.
