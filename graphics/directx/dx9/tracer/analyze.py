@@ -11,7 +11,6 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import math
 import subprocess
 import sys
 
