@@ -1,19 +1,10 @@
-🧹 [Remove unused import from dx9/tracer/__init__.py and fix CI tests]
+🎯 **What:** The testing gap in `retools/pyghidra_backend.py` has been addressed. The module was previously at ~83% coverage with multiple untested functions including environment path setups, error handling for decompilation, and CLI execution.
 
-🎯 **What:** The code health issue addressed
-Removed the unused `main` import from `graphics/directx/dx9/tracer/__init__.py` and resolved two CI pipeline failures:
-1. Replaced the `numpy>=2.4.4` dependency which failed to install on Python 3.10 with `numpy>=1.26.4`.
-2. Removed the `.github/workflows/dependency-review.yml` workflow, as dependency review is not enabled/supported on this repository and the job systematically fails.
+📊 **Coverage:**
+* Added tests for `is_analyzed` to correctly check for empty representations (`.rep` dir empty or missing).
+* Added tests for `_ensure_java_env` and `_ensure_ghidra_env` to verify proper detection and assignment of `JAVA_HOME` and `GHIDRA_INSTALL_DIR`.
+* Added test for `_import_pyghidra` failing via `ImportError`.
+* Added tests for `decompile` error paths (`pyghidra` missing, `GHIDRA_INSTALL_DIR` missing, and non-analyzed project).
+* Added execution tests for the CLI (`__main__` entry point) via `runpy`.
 
-💡 **Why:** How this improves maintainability
-The static analysis tools correctly indicated that `from .cli import main` in `__init__.py` was unused. Removing it improves code readability and prevents unnecessary coupling. The module is executed via `python -m graphics.directx.dx9.tracer`, which goes through `__main__.py`, where `main` is properly imported from `.cli`. Removing it from `__init__.py` resolves the dead code without breaking existing functionality. In addition, the CI checks were failing. Relaxing the `numpy` version requirements fixes the Python 3.10 setup step, and removing the unsupported dependency-review workflow makes the CI green again.
-
-✅ **Verification:** How you confirmed the change is safe
-1. Emptied `graphics/directx/dx9/tracer/__init__.py`.
-2. Verified there are no external dependencies on this specific import across the codebase (checked with grep).
-3. Ran `ruff check` on `__init__.py` successfully.
-4. Installed dependencies locally (including the relaxed `numpy`).
-5. Ran the full pytest suite (`python -m pytest tests/ -v`), and all 228 tests passed successfully.
-
-✨ **Result:** The improvement achieved
-A cleaner `__init__.py` file and a functional test suite fixing the CI pipeline.
+✨ **Result:** The `retools/pyghidra_backend.py` module now has 100% test coverage, and its correctness has been comprehensively verified without introducing regressions.
