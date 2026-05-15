@@ -14,6 +14,9 @@ on:
         type: string
         default: none
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   analyze:
     name: CodeQL (${{ matrix.language }})
@@ -27,7 +30,7 @@ jobs:
       matrix:
         language: ${{ fromJSON(inputs.languages) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
       - name: Init CodeQL
         uses: github/codeql-action/init@v3
         with:

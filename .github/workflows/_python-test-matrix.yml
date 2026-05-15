@@ -30,6 +30,9 @@ on:
         type: string
         default: ''
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   pytest:
     runs-on: ${{ inputs.runs_on }}
@@ -38,9 +41,9 @@ jobs:
       matrix:
         python-version: ${{ fromJSON(inputs.python_versions) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v5.4.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
