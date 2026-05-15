@@ -1,3 +1,8 @@
+---
+name: patch-engineer
+description: patch-engineer agent
+---
+
 # patch-engineer
 
 ## Role

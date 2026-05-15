@@ -1,3 +1,8 @@
+---
+name: build-validator
+description: build-validator agent
+---
+
 # build-validator
 
 ## Role
