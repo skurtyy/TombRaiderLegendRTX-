@@ -1,10 +1,6 @@
-import sys
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 import pytest
 from requests.exceptions import HTTPError
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from linear.sync import gql
 
