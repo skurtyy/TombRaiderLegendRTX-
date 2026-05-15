@@ -38,7 +38,7 @@ jobs:
           set -e
           gh api -H 'Accept: application/vnd.github.v3.diff' "repos/$REPO/pulls/$PR_NUMBER" > /tmp/pr.diff
           python <<'PYEOF'
-          import json, os, urllib.request, subprocess
+          import json, os, sys, urllib.request, urllib.error, subprocess
           from pathlib import Path
           diff = Path('/tmp/pr.diff').read_text(encoding='utf-8', errors='replace')[:80000]
           sys = ('Classify this pull request diff risk. Output STRICT JSON with one key `risk` whose value is exactly one of "low","med","high". '
