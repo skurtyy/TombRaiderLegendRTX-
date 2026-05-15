@@ -1,5 +1,3 @@
-import re
-
 with open("tests/test_pyghidra_backend.py", "r") as f:
     content = f.read()
 
@@ -16,7 +14,10 @@ test_rep_not_dir = """    def test_rep_not_dir(self, tmp_path):
 
 """
 if "test_rep_not_dir" not in content:
-    content = content.replace("    def test_valid_project(self, tmp_path):", test_rep_not_dir + "    def test_valid_project(self, tmp_path):")
+    content = content.replace(
+        "    def test_valid_project(self, tmp_path):",
+        test_rep_not_dir + "    def test_valid_project(self, tmp_path):",
+    )
 
 test_imports = """
 # ---------------------------------------------------------------------------
@@ -89,7 +90,11 @@ class TestImports:
 """
 
 if "TestImports" not in content:
-    content = content.replace("# ---------------------------------------------------------------------------\n# analyze\n# ---------------------------------------------------------------------------", test_imports + "# analyze\n# ---------------------------------------------------------------------------")
+    content = content.replace(
+        "# ---------------------------------------------------------------------------\n# analyze\n# ---------------------------------------------------------------------------",
+        test_imports
+        + "# analyze\n# ---------------------------------------------------------------------------",
+    )
 
 test_decompile_errors = """    def test_decompile_pyghidra_missing(self, tmp_path, monkeypatch):
         from pyghidra_backend import decompile
@@ -130,7 +135,11 @@ test_decompile_errors = """    def test_decompile_pyghidra_missing(self, tmp_pat
 
 """
 if "test_decompile_pyghidra_missing" not in content:
-    content = content.replace("    def test_error_no_function(self, tmp_path, monkeypatch):", test_decompile_errors + "    def test_error_no_function(self, tmp_path, monkeypatch):")
+    content = content.replace(
+        "    def test_error_no_function(self, tmp_path, monkeypatch):",
+        test_decompile_errors
+        + "    def test_error_no_function(self, tmp_path, monkeypatch):",
+    )
 
 test_decompile_hex = """    def test_decompile_hex_va(self, tmp_path, capsys, monkeypatch):
         from pyghidra_backend import main
