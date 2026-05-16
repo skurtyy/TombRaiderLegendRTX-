@@ -51,7 +51,6 @@ If trace/steptrace/collect time out with 0 results, alt-tab to the game first.
 from __future__ import annotations
 
 import argparse
-import os
 import subprocess
 import sys
 import time
@@ -693,7 +692,8 @@ def cmd_gamectl(args: argparse.Namespace) -> None:
     if action == "info":
         # info doesn't need a valid hwnd to report the error clearly
         if not hwnd:
-            print(f"[error] {err}"); return
+            print(f"[error] {err}")
+            return
         info = gc.get_window_info(hwnd)
         print(f"hwnd:  {info['hwnd']}")
         print(f"title: {info['title']}")
@@ -702,7 +702,8 @@ def cmd_gamectl(args: argparse.Namespace) -> None:
         return
 
     if not hwnd:
-        print(f"[error] {err}"); return
+        print(f"[error] {err}")
+        return
 
     if action == "key":
         focused = gc.focus_hwnd(hwnd)
@@ -742,15 +743,7 @@ def cmd_gamectl(args: argparse.Namespace) -> None:
 
 # ── argument parser ────────────────────────────────────────────────────────
 
-def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
-        prog="python -m livetools",
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    sub = p.add_subparsers(dest="command")
-
-    # -- session --
+def _build_session_parser(sub: argparse._SubParsersAction) -> None:
     sp = sub.add_parser("attach",
         help="Attach to a running process (starts background daemon)",
         description="Attach to a running process by name or PID. "
@@ -773,7 +766,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("status",
         help="Show current state: attached process, frozen status, bp count")
 
-    # -- breakpoints --
+def _build_breakpoints_parser(sub: argparse._SubParsersAction) -> None:
     sp = sub.add_parser("bp",
         help="Manage breakpoints (add / del / list)")
     bp_sub = sp.add_subparsers(dest="action")
@@ -783,7 +776,7 @@ def build_parser() -> argparse.ArgumentParser:
     bp_del.add_argument("addr", help="Address of breakpoint to remove (hex)")
     bp_sub.add_parser("list", help="List all active breakpoints with hit counts")
 
-    # -- watch --
+def _build_watch_parser(sub: argparse._SubParsersAction) -> None:
     sp = sub.add_parser("watch",
         help="Block until a breakpoint is hit, then print snapshot",
         description=(
@@ -796,7 +789,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--timeout", type=int, default=60,
         help="Seconds to wait before giving up (default: 60)")
 
-    # -- inspection --
+def _build_inspection_parser(sub: argparse._SubParsersAction) -> None:
     sub.add_parser("regs", help="Print all registers (x86/x64)")
     sp = sub.add_parser("stack", help="Dump stack slots from ESP/RSP")
     sp.add_argument("count", nargs="?", type=int, default=16,
@@ -838,7 +831,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("bt", help="Print stack backtrace")
 
-    # -- control --
+def _build_control_parser(sub: argparse._SubParsersAction) -> None:
     sp = sub.add_parser("step",
         help="Single-step one instruction (must be frozen at a bp)")
     sp.add_argument("mode", nargs="?", default="over",
@@ -847,13 +840,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("resume", help="Resume execution (unfreeze from breakpoint)")
 
-    # -- scan --
+def _build_scan_parser(sub: argparse._SubParsersAction) -> None:
     sp = sub.add_parser("scan", help="Scan process memory for a byte pattern")
     sp.add_argument("pattern", help="Hex byte pattern (e.g. '00 00 80 3F')")
     sp.add_argument("--range", default=None,
         help="Restrict scan to START:SIZE (e.g. 0x400000:0x100000)")
 
-    # -- trace --
+def _build_trace_parser(sub: argparse._SubParsersAction) -> None:
     sp = sub.add_parser("trace",
         help="Non-blocking function enter/leave tracing with data capture",
         description=(
@@ -893,7 +886,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--output", default=None,
         help="Write samples to JSONL file (default: stdout only)")
 
-    # -- steptrace --
+def _build_steptrace_parser(sub: argparse._SubParsersAction) -> None:
     sp = sub.add_parser("steptrace",
         help="Instruction-level execution recording via Stalker",
         description=(
@@ -929,7 +922,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--output", default=None,
         help="Write trace to JSONL file")
 
-    # -- collect --
+def _build_collect_parser(sub: argparse._SubParsersAction) -> None:
     sp = sub.add_parser("collect",
         help="Long-running multi-function data collection with intervals",
         description=(
@@ -977,7 +970,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--label", action="append", default=None,
         help="Human label: ADDR=NAME (e.g. 0x401000=FuncA)")
 
-    # -- modules --
+def _build_modules_parser(sub: argparse._SubParsersAction) -> None:
     sp = sub.add_parser("modules",
         help="List loaded DLLs with base addresses and sizes",
         description=(
@@ -992,7 +985,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--filter", default=None,
         help="Case-insensitive substring filter on module name/path")
 
-    # -- vishook --
+def _build_vishook_parser(sub: argparse._SubParsersAction) -> None:
     sp = sub.add_parser("vishook",
         help="Selective visibility override via code cave on a jmp trampoline",
         description=(
@@ -1024,7 +1017,7 @@ def build_parser() -> argparse.ArgumentParser:
     vhsub.add_parser("off", help="Disable override, restore original jmp")
     vhsub.add_parser("stats", help="Show override/passthrough call counts")
 
-    # -- dipcnt --
+def _build_dipcnt_parser(sub: argparse._SubParsersAction) -> None:
     sp = sub.add_parser("dipcnt",
         help="Count DrawIndexedPrimitive calls (D3D9 vtable hook)")
     dc_sub = sp.add_subparsers(dest="action")
@@ -1036,7 +1029,7 @@ def build_parser() -> argparse.ArgumentParser:
     cal_p = dc_sub.add_parser("callers", help="Sample N DIP calls and show caller histogram")
     cal_p.add_argument("count", nargs="?", type=int, default=200, help="Number of calls to sample (default 200)")
 
-    # -- memwatch --
+def _build_memwatch_parser(sub: argparse._SubParsersAction) -> None:
     sp = sub.add_parser("memwatch",
         help="Hardware memory write watchpoint (catch who writes to an address)",
         description=(
@@ -1059,7 +1052,7 @@ def build_parser() -> argparse.ArgumentParser:
     mw_sub.add_parser("stop", help="Stop the active watchpoint")
     mw_sub.add_parser("read", help="Read captured hits")
 
-    # -- analyze --
+def _build_analyze_parser(sub: argparse._SubParsersAction) -> None:
     sp = sub.add_parser("analyze",
         help="Offline JSONL aggregation and query (no Frida needed)",
         description=(
@@ -1112,7 +1105,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--export-csv", default=None,
         help="Export filtered/grouped data as CSV to file")
 
-    # -- gamectl --
+def _build_gamectl_parser(sub: argparse._SubParsersAction) -> None:
     sp = sub.add_parser("gamectl",
         help="Send keystrokes/mouse clicks directly to a game window (no Frida, no focus needed)",
         description=(
@@ -1171,6 +1164,31 @@ def build_parser() -> argparse.ArgumentParser:
     gc_macros = gc_sub.add_parser("macros", help="List all macros in a JSON file")
     gc_macros.add_argument("--macro-file", default="macros.json",
         help="Path to macro JSON file (default: macros.json)")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="python -m livetools",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sub = p.add_subparsers(dest="command")
+
+    _build_session_parser(sub)
+    _build_breakpoints_parser(sub)
+    _build_watch_parser(sub)
+    _build_inspection_parser(sub)
+    _build_control_parser(sub)
+    _build_scan_parser(sub)
+    _build_trace_parser(sub)
+    _build_steptrace_parser(sub)
+    _build_collect_parser(sub)
+    _build_modules_parser(sub)
+    _build_vishook_parser(sub)
+    _build_dipcnt_parser(sub)
+    _build_memwatch_parser(sub)
+    _build_analyze_parser(sub)
+    _build_gamectl_parser(sub)
 
     return p
 
