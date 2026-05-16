@@ -1,29 +1,30 @@
 """Main GamePilot agent — vision-driven game control loop."""
+
 from __future__ import annotations
 
 import signal
 import subprocess
 import sys
 import time
+from typing import Any
 from pathlib import Path
 
-from PIL import Image
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GAME_DIR = REPO_ROOT / "Tomb Raider Legend"
 
 sys.path.insert(0, str(REPO_ROOT))
 
-from gamepilot.capture import capture, image_to_bytes
-from gamepilot.vision import GameState, classify_state, decide_action
-from gamepilot.controller import execute_action
-from gamepilot.states.handlers import pre_process
-from gamepilot.session import Session
-from livetools.gamectl import find_hwnd_by_exe
+from gamepilot.capture import capture, image_to_bytes  # noqa: E402
+from gamepilot.vision import GameState, classify_state, decide_action  # noqa: E402
+from gamepilot.controller import execute_action  # noqa: E402
+from gamepilot.states.handlers import pre_process  # noqa: E402
+from gamepilot.session import Session  # noqa: E402
+from livetools.gamectl import find_hwnd_by_exe  # noqa: E402
 
 MAX_STEPS = 200
 CAPTURE_INTERVAL = 0.5  # seconds between captures when idle
-STUCK_THRESHOLD = 5     # same state+action this many times = stuck
+STUCK_THRESHOLD = 5  # same state+action this many times = stuck
 MAX_CONSECUTIVE_ERRORS = 10  # abort after this many consecutive failures
 MAX_UNKNOWN_STREAK = 8  # abort after this many consecutive UNKNOWN classifications
 
@@ -81,7 +82,8 @@ def _kill_game_safe() -> None:
     try:
         subprocess.run(
             ["taskkill", "/f", "/im", "trl.exe"],
-            capture_output=True, timeout=10,
+            capture_output=True,
+            timeout=10,
         )
     except Exception:
         pass
@@ -152,6 +154,190 @@ def run_agent(
         session.close()
 
 
+def _make_result(
+    success: bool,
+    steps_taken: int,
+    final_state: str,
+    history: list[dict],
+    session_dir: str,
+    error: str = None,
+) -> dict:
+    result = {
+        "success": success,
+        "steps_taken": steps_taken,
+        "final_state": final_state,
+        "history": history,
+        "session_dir": str(session_dir),
+    }
+    if error is not None:
+        result["error"] = error
+    return result
+
+
+def _check_early_abort(
+    step: int,
+    dry_run: bool,
+    is_shutdown,
+    last_state: GameState,
+    history: list[dict],
+    session: Session,
+) -> tuple[bool, dict, int | None]:
+    if is_shutdown():
+        print(f"\n[agent] Shutdown at step {step}")
+        session.log("shutdown", step=step)
+        result = _make_result(
+            False,
+            step,
+            last_state.value,
+            history,
+            session.session_dir,
+            "Shutdown requested",
+        )
+        session.write_summary(result)
+        return True, result, None
+
+    hwnd = None
+    if not dry_run:
+        hwnd_check = find_hwnd_by_exe("trl.exe")
+        if not hwnd_check:
+            print(f"\n[agent] Step {step}: Game window lost — crashed or closed")
+            session.log("game_lost", step=step)
+            result = _make_result(
+                False,
+                step,
+                GameState.CRASHED.value,
+                history,
+                session.session_dir,
+                "Game window lost",
+            )
+            session.write_summary(result)
+            return True, result, None
+        hwnd = hwnd_check
+
+    return False, {}, hwnd
+
+
+def _perform_capture(
+    step: int,
+    hwnd: int | None,
+    dry_run: bool,
+    prefer_nvidia: bool,
+    last_state: GameState,
+    verbose: bool,
+    session: Session,
+    consecutive_errors: int,
+    history: list[dict],
+) -> tuple[bool, dict, Any, int]:
+    img = None
+    if not dry_run:
+        use_nvidia = prefer_nvidia or last_state in (
+            GameState.GAMEPLAY,
+            GameState.REMIX_MENU,
+        )
+        try:
+            img = capture(hwnd, prefer_nvidia=use_nvidia)
+        except Exception as e:
+            session.log("capture_error", step=step, error=str(e))
+            consecutive_errors += 1
+
+        if img is None:
+            if verbose:
+                print(f"  Step {step}: Capture failed, retrying with NVIDIA...")
+            try:
+                img = capture(hwnd, prefer_nvidia=True)
+            except Exception as e:
+                session.log("capture_retry_error", step=step, error=str(e))
+
+        if img is None:
+            print(f"  Step {step}: All capture methods failed")
+            session.log("capture_failed", step=step)
+            consecutive_errors += 1
+            if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                print(f"[agent] {MAX_CONSECUTIVE_ERRORS} consecutive errors — aborting")
+                session.log("too_many_errors", count=consecutive_errors)
+                result = _make_result(
+                    False,
+                    step,
+                    last_state.value,
+                    history,
+                    session.session_dir,
+                    f"{consecutive_errors} consecutive errors",
+                )
+                session.write_summary(result)
+                return True, result, None, consecutive_errors
+            time.sleep(2)
+            return False, {}, None, consecutive_errors
+
+    if img is not None:
+        session.save_screenshot(img, f"step_{step:03d}")
+
+    return False, {}, img, consecutive_errors
+
+
+def _perform_classification(
+    step: int,
+    img: Any,
+    dry_run: bool,
+    verbose: bool,
+    last_state: GameState,
+    unknown_streak: int,
+    session: Session,
+    history: list[dict],
+    consecutive_errors: int,
+) -> tuple[bool, dict, GameState, str, bytes, int, int]:
+    if img is not None:
+        img_bytes = image_to_bytes(img)
+        try:
+            state, details = classify_state(img_bytes)
+            consecutive_errors = 0
+        except Exception as e:
+            session.log("classify_error", step=step, error=str(e))
+            state, details = GameState.UNKNOWN, f"Classification failed: {e}"
+            consecutive_errors += 1
+    else:
+        # Dry run: cycle through states for testing
+        state = GameState.UNKNOWN
+        details = "dry run — no capture"
+        img_bytes = b""
+
+    # Track unknown streaks
+    if state == GameState.UNKNOWN:
+        unknown_streak += 1
+        if unknown_streak >= MAX_UNKNOWN_STREAK:
+            print(f"[agent] {MAX_UNKNOWN_STREAK} consecutive UNKNOWN states — aborting")
+            session.log("unknown_streak", count=unknown_streak)
+            result = _make_result(
+                False,
+                step,
+                state.value,
+                history,
+                session.session_dir,
+                f"{unknown_streak} consecutive UNKNOWN classifications",
+            )
+            session.write_summary(result)
+            return (
+                True,
+                result,
+                state,
+                details,
+                img_bytes,
+                unknown_streak,
+                consecutive_errors,
+            )
+    else:
+        unknown_streak = 0
+
+    session.log("classify", step=step, state=state.value, details=details)
+
+    if verbose:
+        state_changed = state != last_state
+        marker = " ***" if state_changed else ""
+        print(f"\n  Step {step}: State={state.value}{marker}")
+        print(f"    Details: {details}")
+
+    return False, {}, state, details, img_bytes, unknown_streak, consecutive_errors
+
+
 def _run_agent_inner(
     goal: str,
     launch: bool,
@@ -163,10 +349,10 @@ def _run_agent_inner(
     is_shutdown,
 ) -> dict:
     print("=" * 60)
-    print(f"  GAMEPILOT — Vision-Controlled Game Agent")
+    print("  GAMEPILOT — Vision-Controlled Game Agent")
     print(f"  Goal: {goal}")
     if dry_run:
-        print(f"  Mode: DRY RUN (no game interaction)")
+        print("  Mode: DRY RUN (no game interaction)")
     print(f"  Session: {session.session_dir}")
     print("=" * 60)
 
@@ -179,8 +365,9 @@ def _run_agent_inner(
             hwnd = find_hwnd_by_exe("trl.exe")
 
         if not hwnd:
-            result = {"success": False, "error": "Game not running", "steps_taken": 0,
-                      "history": [], "session_dir": str(session.session_dir)}
+            result = _make_result(
+                False, 0, "", [], session.session_dir, "Game not running"
+            )
             session.write_summary(result)
             return result
 
@@ -190,132 +377,58 @@ def _run_agent_inner(
     last_state = GameState.UNKNOWN
 
     for step in range(max_steps):
-        if is_shutdown():
-            print(f"\n[agent] Shutdown at step {step}")
-            session.log("shutdown", step=step)
-            result = {
-                "success": False,
-                "error": "Shutdown requested",
-                "steps_taken": step,
-                "final_state": last_state.value,
-                "history": history,
-                "session_dir": str(session.session_dir),
-            }
-            session.write_summary(result)
-            return result
-
         session.step_count = step
 
-        # Check game is still alive
-        if not dry_run:
-            hwnd_check = find_hwnd_by_exe("trl.exe")
-            if not hwnd_check:
-                print(f"\n[agent] Step {step}: Game window lost — crashed or closed")
-                session.log("game_lost", step=step)
-                result = {
-                    "success": False,
-                    "error": "Game window lost",
-                    "steps_taken": step,
-                    "final_state": GameState.CRASHED.value,
-                    "history": history,
-                    "session_dir": str(session.session_dir),
-                }
-                session.write_summary(result)
-                return result
-            hwnd = hwnd_check
+        abort, result, hwnd_checked = _check_early_abort(
+            step, dry_run, is_shutdown, last_state, history, session
+        )
+        if abort:
+            return result
+        if hwnd_checked is not None:
+            hwnd = hwnd_checked
 
-        # Capture screenshot
-        img = None
-        if not dry_run:
-            use_nvidia = prefer_nvidia or last_state in (GameState.GAMEPLAY, GameState.REMIX_MENU)
-            try:
-                img = capture(hwnd, prefer_nvidia=use_nvidia)
-            except Exception as e:
-                session.log("capture_error", step=step, error=str(e))
-                consecutive_errors += 1
+        abort, result, img, consecutive_errors = _perform_capture(
+            step,
+            hwnd,
+            dry_run,
+            prefer_nvidia,
+            last_state,
+            verbose,
+            session,
+            consecutive_errors,
+            history,
+        )
+        if abort:
+            return result
+        if img is None and not dry_run:
+            continue  # Wait happened in capture retry
 
-            if img is None:
-                if verbose:
-                    print(f"  Step {step}: Capture failed, retrying with NVIDIA...")
-                try:
-                    img = capture(hwnd, prefer_nvidia=True)
-                except Exception as e:
-                    session.log("capture_retry_error", step=step, error=str(e))
-
-            if img is None:
-                print(f"  Step {step}: All capture methods failed")
-                session.log("capture_failed", step=step)
-                consecutive_errors += 1
-                if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-                    print(f"[agent] {MAX_CONSECUTIVE_ERRORS} consecutive errors — aborting")
-                    session.log("too_many_errors", count=consecutive_errors)
-                    result = {
-                        "success": False,
-                        "error": f"{consecutive_errors} consecutive errors",
-                        "steps_taken": step,
-                        "final_state": last_state.value,
-                        "history": history,
-                        "session_dir": str(session.session_dir),
-                    }
-                    session.write_summary(result)
-                    return result
-                time.sleep(2)
-                continue
-
-        # Save screenshot for the session record
-        if img is not None:
-            session.save_screenshot(img, f"step_{step:03d}")
-
-        # Classify state
-        if img is not None:
-            img_bytes = image_to_bytes(img)
-            try:
-                state, details = classify_state(img_bytes)
-                consecutive_errors = 0
-            except Exception as e:
-                session.log("classify_error", step=step, error=str(e))
-                state, details = GameState.UNKNOWN, f"Classification failed: {e}"
-                consecutive_errors += 1
-        else:
-            # Dry run: cycle through states for testing
-            state = GameState.UNKNOWN
-            details = "dry run — no capture"
-            img_bytes = b""
-
-        # Track unknown streaks
-        if state == GameState.UNKNOWN:
-            unknown_streak += 1
-            if unknown_streak >= MAX_UNKNOWN_STREAK:
-                print(f"[agent] {MAX_UNKNOWN_STREAK} consecutive UNKNOWN states — aborting")
-                session.log("unknown_streak", count=unknown_streak)
-                result = {
-                    "success": False,
-                    "error": f"{unknown_streak} consecutive UNKNOWN classifications",
-                    "steps_taken": step,
-                    "final_state": state.value,
-                    "history": history,
-                    "session_dir": str(session.session_dir),
-                }
-                session.write_summary(result)
-                return result
-        else:
-            unknown_streak = 0
-
-        session.log("classify", step=step, state=state.value, details=details)
-
-        if verbose:
-            state_changed = state != last_state
-            marker = " ***" if state_changed else ""
-            print(f"\n  Step {step}: State={state.value}{marker}")
-            print(f"    Details: {details}")
+        abort, result, state, details, img_bytes, unknown_streak, consecutive_errors = (
+            _perform_classification(
+                step,
+                img,
+                dry_run,
+                verbose,
+                last_state,
+                unknown_streak,
+                session,
+                history,
+                consecutive_errors,
+            )
+        )
+        if abort:
+            return result
 
         last_state = state
 
         # Stuck detection
         if _detect_stuck(history):
             print(f"[agent] Stuck — same action repeated {STUCK_THRESHOLD} times")
-            session.log("stuck_detected", step=step, last_action=history[-1] if history else None)
-            # Force a different action: try ESCAPE to unstick
+            session.log(
+                "stuck_detected",
+                step=step,
+                last_action=history[-1] if history else None,
+            )
             unstick_action = {
                 "action": "key",
                 "args": {"name": "ESCAPE"},
@@ -339,7 +452,6 @@ def _run_agent_inner(
             history.append(pre_action)
 
             if state == GameState.LOADING:
-                # Don't count loading waits against stuck detection
                 pass
             continue
 
@@ -373,13 +485,7 @@ def _run_agent_inner(
         if action.get("action") == "goal_complete":
             print(f"\n  GOAL COMPLETE at step {step}")
             print(f"    Reason: {action.get('reasoning', '')}")
-            result = {
-                "success": True,
-                "steps_taken": step,
-                "final_state": state.value,
-                "history": history,
-                "session_dir": str(session.session_dir),
-            }
+            result = _make_result(True, step, state.value, history, session.session_dir)
             session.write_summary(result)
             return result
 
@@ -398,13 +504,13 @@ def _run_agent_inner(
 
     print(f"\n[agent] Reached max steps ({max_steps}) without completing goal")
     session.log("max_steps_reached", max_steps=max_steps)
-    result = {
-        "success": False,
-        "error": "Max steps reached",
-        "steps_taken": max_steps,
-        "final_state": last_state.value,
-        "history": history,
-        "session_dir": str(session.session_dir),
-    }
+    result = _make_result(
+        False,
+        max_steps,
+        last_state.value,
+        history,
+        session.session_dir,
+        "Max steps reached",
+    )
     session.write_summary(result)
     return result
