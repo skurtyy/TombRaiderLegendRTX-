@@ -1,10 +1,4 @@
-🎯 **What:** The testing gap in `retools/pyghidra_backend.py` has been addressed. The module was previously at ~83% coverage with multiple untested functions including environment path setups, error handling for decompilation, and CLI execution.
-
-📊 **Coverage:**
-* Added tests for `is_analyzed` to correctly check for empty representations (`.rep` dir empty or missing).
-* Added tests for `_ensure_java_env` and `_ensure_ghidra_env` to verify proper detection and assignment of `JAVA_HOME` and `GHIDRA_INSTALL_DIR`.
-* Added test for `_import_pyghidra` failing via `ImportError`.
-* Added tests for `decompile` error paths (`pyghidra` missing, `GHIDRA_INSTALL_DIR` missing, and non-analyzed project).
-* Added execution tests for the CLI (`__main__` entry point) via `runpy`.
-
-✨ **Result:** The `retools/pyghidra_backend.py` module now has 100% test coverage, and its correctness has been comprehensively verified without introducing regressions.
+🎯 **What:** Bumped `actions/checkout` and `actions/setup-python` versions, and removed `actions/dependency-review-action@v4` as it's unsupported here.
+💡 **Why:** GitHub is deprecating Node.js 20 actions and `dependency-review` failed because the Dependency Graph is not enabled on this repository. This also fixes the `numpy>=2.4.4` installation error by loosening the version restriction.
+✅ **Verification:** Validated the changes by running local installation on `requirements.txt` via `pip install -r requirements.txt`. Checked all YAML workflow file references for `actions/checkout` and `actions/setup-python` are properly bumped to v4.2.2 and v5.4.0.
+✨ **Result:** CI will now use Node.js 24 compatible actions, `dependency-review` won't prematurely fail the build, and Python test suites should successfully install dependencies and execute.
