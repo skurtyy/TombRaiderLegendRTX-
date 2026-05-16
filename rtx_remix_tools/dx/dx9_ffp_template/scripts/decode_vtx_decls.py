@@ -16,6 +16,8 @@ import argparse
 import sys
 import struct
 from pathlib import Path
+from capstone import Cs, CS_ARCH_X86, CS_MODE_32
+from capstone import x86_const as x86
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "retools"))
 
@@ -145,7 +147,6 @@ def scan_for_decls(data, sections, image_base):
     text_data = data[text_raw:text_raw + text_size]
 
     # Search for push <addr>; ... call [reg+0x158] = CreateVertexDeclaration
-    # Look for push imm32 (0x68 XXXXXXXX) near CreateVertexDeclaration calls
     cvd_offset = struct.pack('<I', 0x158)
     regs = {0x90: 'eax', 0x91: 'ecx', 0x92: 'edx', 0x93: 'ebx',
             0x96: 'esi', 0x97: 'edi'}
@@ -187,22 +188,26 @@ def scan_for_decls(data, sections, image_base):
         start = max(0, file_off - 60)
         context = data[start:file_off]
 
-        # Find push imm32 (0x68) instructions
-        i = 0
-        while i < len(context) - 4:
-            if context[i] == 0x68:
-                addr = struct.unpack_from('<I', context, i + 1)[0]
-                # Check if this looks like a valid VA pointing to data
-                off_check = va_to_offset(sections, image_base, addr)
-                if off_check is not None:
-                    # Verify it looks like a D3DVERTEXELEMENT9
-                    elem = data[off_check:off_check + 8]
-                    if len(elem) >= 8:
-                        stream, offset, typ, method, usage, usage_idx = \
-                            struct.unpack_from("<HHBBBB", elem)
-                        if stream <= 4 and typ <= 17 and usage <= 13:
-                            found.add(addr)
-            i += 1
+        # Use Capstone to reliably find push imm32 instructions
+        cs = Cs(CS_ARCH_X86, CS_MODE_32)
+        cs.detail = True
+
+        for insn in cs.disasm(context, image_base + start):
+            if insn.id == x86.X86_INS_PUSH:
+                for op in insn.operands:
+                    if op.type == x86.X86_OP_IMM:
+                        addr = op.imm
+                        # Check if this looks like a valid VA pointing to data
+                        off_check = va_to_offset(sections, image_base, addr)
+                        if off_check is not None:
+                            # Verify it looks like a D3DVERTEXELEMENT9
+                            elem = data[off_check:off_check + 8]
+                            if len(elem) >= 8:
+                                stream, offset, typ, method, usage, usage_idx = \
+                                    struct.unpack_from("<HHBBBB", elem)
+                                if stream <= 4 and typ <= 17 and usage <= 13:
+                                    found.add(addr)
+                        break
 
     return sorted(found)
 
