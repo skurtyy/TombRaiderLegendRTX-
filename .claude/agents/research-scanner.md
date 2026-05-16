@@ -1,3 +1,8 @@
+---
+name: research-scanner
+description: research-scanner agent
+---
+
 # research-scanner
 
 ## Role

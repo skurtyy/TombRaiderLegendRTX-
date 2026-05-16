@@ -37,6 +37,9 @@ on:
       LINEAR_API_KEY:
         required: false
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   generate-ideas:
     runs-on: ubuntu-latest
@@ -44,8 +47,8 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.4.0
         with:
           python-version: '3.11'
       - name: Build context, call Claude, push ideas

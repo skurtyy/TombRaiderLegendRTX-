@@ -1,3 +1,8 @@
+---
+name: re-analyst
+description: re-analyst agent
+---
+
 # re-analyst
 
 ## Role
