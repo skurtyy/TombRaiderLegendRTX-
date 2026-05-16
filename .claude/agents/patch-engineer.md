@@ -1,3 +1,8 @@
+---
+name: patch-engineer
+description: Implementation agent for TombRaiderLegendRTX. Takes a single validated hypothesis from `idea-trac...
+---
+
 # patch-engineer
 
 ## Role

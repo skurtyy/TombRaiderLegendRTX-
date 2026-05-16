@@ -6,6 +6,9 @@ on:
     - cron: '0 6 * * 5'
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   call:
     uses: ./.github/workflows/_upstream-monitor.yml

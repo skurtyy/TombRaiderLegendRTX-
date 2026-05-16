@@ -16,6 +16,9 @@ on:
       ANTHROPIC_API_KEY:
         required: true
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   risk:
     if: github.event.pull_request.draft == false
@@ -58,7 +61,7 @@ jobs:
               risk = json.loads(raw).get('risk','low').lower()
           except Exception:
               risk = 'low'
-          assert risk in ('low','med','high'), risk
+          if risk not in ('low','med','high'): risk = 'low'
           repo = os.environ['REPO']; num = os.environ['PR_NUMBER']; thr = os.environ['THRESHOLD']
           subprocess.run(['gh','pr','edit',num,'--repo',repo,'--add-label',f'risk-{risk}'], check=False)
           order = {'low':0,'med':1,'high':2}

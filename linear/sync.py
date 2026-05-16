@@ -21,7 +21,7 @@ except ImportError:
     sys.exit("pip install requests")
 
 API_KEY = os.environ.get("LINEAR_API_KEY", "")
-if not API_KEY:
+if not API_KEY and __name__ == "__main__":
     sys.exit("Set LINEAR_API_KEY environment variable")
 
 HEADERS = {"Authorization": API_KEY, "Content-Type": "application/json"}

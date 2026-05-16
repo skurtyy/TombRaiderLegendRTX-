@@ -1,3 +1,8 @@
+---
+name: re-analyst
+description: Reverse engineering and source analysis agent for TombRaiderLegendRTX. Handles both static binary...
+---
+
 # re-analyst
 
 ## Role

@@ -1,3 +1,8 @@
+---
+name: build-validator
+description: Build and regression validation agent for TombRaiderLegendRTX. Confirms a build meets pass criter...
+---
+
 # build-validator
 
 ## Role
