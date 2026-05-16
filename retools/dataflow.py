@@ -21,45 +21,58 @@ from capstone import x86_const as x86
 from common import Binary
 from cfg import build_cfg
 
-
 # ---------------------------------------------------------------------------
 # Value types
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class Const:
     """Resolved constant value."""
+
     value: int
+
     def __str__(self):
         return f"0x{self.value & 0xFFFFFFFF:x}"
+
 
 @dataclass(frozen=True)
 class Unknown:
     """Unresolvable value."""
+
     def __str__(self):
         return "?"
+
 
 @dataclass(frozen=True)
 class BinOp:
     """Binary operation on two values."""
+
     op: str
-    left: object   # Value
+    left: object  # Value
     right: object  # Value
+
     def __str__(self):
         return f"({self.left} {self.op} {self.right})"
+
 
 @dataclass(frozen=True)
 class Load:
     """Memory load: [base + offset]."""
-    base: object   # Value
+
+    base: object  # Value
     offset: int
+
     def __str__(self):
         return f"[{self.base}+0x{self.offset:x}]" if self.offset else f"[{self.base}]"
+
 
 @dataclass(frozen=True)
 class Arg:
     """Function argument."""
+
     index: int
+
     def __str__(self):
         return f"arg{self.index}"
 
@@ -210,7 +223,9 @@ def _apply_insn(state: dict, insn, push_stack: list) -> None:
         state["edx"] = Unknown()
 
 
-def propagate_forward(insns: list, init: dict[str, object] | None = None) -> dict[str, object]:
+def propagate_forward(
+    insns: list, init: dict[str, object] | None = None
+) -> dict[str, object]:
     """Propagate constants forward through a linear sequence of instructions.
 
     Args:
@@ -230,6 +245,7 @@ def propagate_forward(insns: list, init: dict[str, object] | None = None) -> dic
 # ---------------------------------------------------------------------------
 # CFG-aware forward propagation
 # ---------------------------------------------------------------------------
+
 
 def _merge_states(states: list[dict]) -> dict[str, object]:
     """Merge register states from multiple predecessor blocks.
@@ -267,7 +283,9 @@ def propagate_cfg(
         Dict mapping block start VA to register state at block exit.
     """
     if b.is_64:
-        raise NotImplementedError("x64 dataflow not yet supported — only x86 registers are tracked")
+        raise NotImplementedError(
+            "x64 dataflow not yet supported — only x86 registers are tracked"
+        )
     blocks, edges = build_cfg(b, func_va, max_size)
     if not blocks:
         return {}
@@ -317,6 +335,7 @@ def propagate_cfg(
 # ---------------------------------------------------------------------------
 # Backward slicing
 # ---------------------------------------------------------------------------
+
 
 def _insn_reads(insn) -> set[str]:
     """Return set of register names read by this instruction."""
@@ -399,8 +418,7 @@ def backward_slice(
         overlap = writes & needed
         if overlap:
             desc = f"{insn.mnemonic} {insn.op_str}"
-            for reg in overlap:
-                result.append((insn.address, reg, desc))
+            result.extend([(insn.address, reg, desc) for reg in overlap])
             needed -= overlap
             needed |= _insn_reads(insn)
         steps += 1
@@ -410,8 +428,12 @@ def backward_slice(
 
 
 def backward_slice_cfg(
-    b: Binary, func_va: int, target_va: int, target_reg: str,
-    max_depth: int = 50, max_size: int = 0x4000,
+    b: Binary,
+    func_va: int,
+    target_va: int,
+    target_reg: str,
+    max_depth: int = 50,
+    max_size: int = 0x4000,
 ) -> list[tuple[int, str, str]]:
     """CFG-aware backward slice: trace register contributions respecting control flow.
 
@@ -470,9 +492,8 @@ def backward_slice_cfg(
             overlap = writes & needed
             if overlap:
                 desc = f"{insn.mnemonic} {insn.op_str}"
-                for reg in overlap:
-                    result.append((insn.address, reg, desc))
-                needed = needed - overlap | _insn_reads(insn)
+                result.extend([(insn.address, reg, desc) for reg in overlap])
+                needed = (needed - overlap) | _insn_reads(insn)
             depth += 1
 
         if needed:
@@ -496,6 +517,7 @@ def backward_slice_cfg(
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(
         description=__doc__,
@@ -503,12 +525,22 @@ def main(argv: list[str] | None = None) -> None:
     )
     p.add_argument("binary", help="Path to PE binary (.exe / .dll)")
     p.add_argument("va", help="Function virtual address (hex)")
-    p.add_argument("--constants", action="store_true",
-                   help="Show all resolved constants in the function")
-    p.add_argument("--slice", metavar="VA:REG",
-                   help="Backward slice: trace REG at VA (e.g. 0x401080:eax)")
-    p.add_argument("--max-size", type=lambda x: int(x, 0), default=0x4000,
-                   help="Max function scan window (default: 0x4000)")
+    p.add_argument(
+        "--constants",
+        action="store_true",
+        help="Show all resolved constants in the function",
+    )
+    p.add_argument(
+        "--slice",
+        metavar="VA:REG",
+        help="Backward slice: trace REG at VA (e.g. 0x401080:eax)",
+    )
+    p.add_argument(
+        "--max-size",
+        type=lambda x: int(x, 0),
+        default=0x4000,
+        help="Max function scan window (default: 0x4000)",
+    )
     args = p.parse_args(argv)
 
     b = Binary(args.binary)
@@ -530,11 +562,15 @@ def main(argv: list[str] | None = None) -> None:
     elif args.slice:
         parts = args.slice.split(":")
         if len(parts) != 2:
-            print("Error: --slice format is VA:REG (e.g. 0x401080:eax)", file=sys.stderr)
+            print(
+                "Error: --slice format is VA:REG (e.g. 0x401080:eax)", file=sys.stderr
+            )
             sys.exit(1)
         target_va = int(parts[0], 16)
         target_reg = parts[1]
-        result = backward_slice_cfg(b, start, target_va, target_reg, max_size=args.max_size)
+        result = backward_slice_cfg(
+            b, start, target_va, target_reg, max_size=args.max_size
+        )
         print(f"Backward slice for {target_reg} at 0x{target_va:0{w}X}:\n")
         for va, reg, desc in result:
             print(f"  0x{va:0{w}X}: {reg} <- {desc}")
