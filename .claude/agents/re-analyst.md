@@ -1,3 +1,8 @@
+---
+name: re-analyst
+description: "Reverse engineering and source analysis agent for TombRaiderLegendRTX. Handles both static binary analysis (GhidraMCP) and live dynamic analysis (Frida hooks, API trace). Replaces the former `renderer-analyst` and `re-assistant` agents."
+---
+
 # re-analyst
 
 ## Role
