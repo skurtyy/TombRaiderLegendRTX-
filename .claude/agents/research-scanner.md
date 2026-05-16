@@ -1,3 +1,7 @@
+---
+name: research-scanner
+description: Agent for TRL RTX Remix project.
+---
 # research-scanner
 
 ## Role
