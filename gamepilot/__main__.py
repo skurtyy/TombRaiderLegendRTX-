@@ -9,7 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="GamePilot — Vision-controlled game agent using Claude API",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -76,25 +76,26 @@ Stability options:
         "--runtime-info", action="store_true",
         help="Show which Remix runtime is active",
     )
+    return parser
 
-    args = parser.parse_args()
 
+def handle_utility_commands(args: argparse.Namespace) -> int | None:
     # Health check command
     if args.health:
         from gamepilot.health import run_all_checks
         _, all_passed = run_all_checks(verbose=True)
-        sys.exit(0 if all_passed else 1)
+        return 0 if all_passed else 1
 
     # Runtime management commands
     if args.swap_debug:
         from gamepilot.remix import swap_to_debug
         success = swap_to_debug()
-        sys.exit(0 if success else 1)
+        return 0 if success else 1
 
     if args.swap_regular:
         from gamepilot.remix import swap_to_regular
         success = swap_to_regular()
-        sys.exit(0 if success else 1)
+        return 0 if success else 1
 
     if args.runtime_info:
         from gamepilot.remix import get_active_runtime, GAME_DIR, DEBUG_RUNTIME
@@ -102,12 +103,16 @@ Stability options:
         print(f"Active runtime: {runtime}")
         print(f"Game directory:  {GAME_DIR}")
         print(f"Debug source:    {DEBUG_RUNTIME}")
-        sys.exit(0)
+        return 0
 
+    return None
+
+
+def execute_agent(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     if not args.goal and not args.dry_run:
         parser.print_help()
         print("\nError: a goal is required (or use --dry-run, --health, --swap-debug, etc.)")
-        sys.exit(1)
+        return 1
 
     goal = args.goal or "dry-run test"
 
@@ -118,7 +123,7 @@ Stability options:
         if not all_passed:
             print("Fix the above errors before running the agent.")
             print("Use --dry-run to test the pipeline without the game.")
-            sys.exit(1)
+            return 1
 
     from gamepilot.agent import run_agent
     result = run_agent(
@@ -141,7 +146,18 @@ Stability options:
         print(f"  Error: {result.get('error', 'unknown')}")
     print(f"{'=' * 60}")
 
-    sys.exit(0 if result["success"] else 1)
+    return 0 if result["success"] else 1
+
+
+def main():
+    parser = build_parser()
+    args = parser.parse_args()
+
+    exit_code = handle_utility_commands(args)
+    if exit_code is not None:
+        sys.exit(exit_code)
+
+    sys.exit(execute_agent(args, parser))
 
 
 if __name__ == "__main__":
