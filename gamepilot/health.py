@@ -1,7 +1,6 @@
 """Preflight health checks — verify prerequisites before running the agent."""
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import sys
@@ -93,7 +92,7 @@ def check_game_dir() -> CheckResult:
     if not GAME_EXE.exists():
         return CheckResult("Game executable", False, f"trl.exe not found in {GAME_DIR}")
     if not LAUNCHER.exists():
-        return CheckResult("Game launcher", False, f"NvRemixLauncher32.exe not found", fatal=False)
+        return CheckResult("Game launcher", False, "NvRemixLauncher32.exe not found", fatal=False)
     return CheckResult("Game directory", True, str(GAME_DIR))
 
 
@@ -130,7 +129,7 @@ def check_livetools() -> CheckResult:
     if not IS_WINDOWS:
         return CheckResult("livetools", False, "requires Windows (ctypes.windll)", fatal=False)
     try:
-        from livetools.gamectl import find_hwnd_by_exe
+        import livetools.gamectl  # noqa: F401
         return CheckResult("livetools", True, "gamectl importable")
     except (ImportError, AttributeError) as e:
         return CheckResult("livetools", False, f"import failed: {e}")
